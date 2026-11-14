@@ -265,7 +265,14 @@ def bake(target_id: str, client: httpx.Client | None = None, out_root: Path = OU
             print(f"  visit {ei + 1}: MJD {ep['mjd_min']:.1f}-{ep['mjd_max']:.1f}  per detector "
                   + " ".join(str(b["n"]) for b in ep["bands"]), flush=True)
 
-        wise_frames = wise.allwise_frames(client, cra, cdec, size_deg, grid, shape)
+        wise_missing = None
+        try:
+            wise_frames = wise.allwise_frames(client, cra, cdec, size_deg, grid, shape)
+        except irsa.FetchError as err:
+            # The 2010 frame is optional: bake without it, re-bake from cache once IRSA's WISE search is back.
+            wise_frames = []
+            wise_missing = f"AllWISE image search failed at bake time ({err})"
+            print(f"  ! no WISE frame: {err}", flush=True)
         field = gaia.cone(client, cra, cdec, t.fov_arcmin / 60.0 * 0.75, gmax=19.0)
 
         epoch_of = {}
@@ -316,6 +323,7 @@ def bake(target_id: str, client: httpx.Client | None = None, out_root: Path = OU
                 "pipeline": f"spherex_blink {__version__}",
                 "baked_utc": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
                 "exposures_found": len(all_exps),
+                "wise_missing": wise_missing,
                 "mask_bits": list(frames.BAD_BITS),
             },
             "exposures": exp_meta,

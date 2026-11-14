@@ -93,6 +93,7 @@ export interface Meta {
     pipeline: string;
     baked_utc: string;
     exposures_found: number;
+    wise_missing?: string | null;
     mask_bits: number[];
   };
   exposures: ExposureInfo[];

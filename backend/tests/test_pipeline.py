@@ -196,3 +196,16 @@ def test_wing_flux_is_proportional_and_ignores_a_saturated_core():
     p = photometry.wing(img2, var2, good2, ovf2, 20.0, 20.0)
     assert p.flag == photometry.FLAG_OK
     assert p.flux / ref.flux == pytest.approx(2.0, rel=0.01)
+
+
+def test_parse_ipac_table():
+    text = (
+        "\fixlen = T\n"
+        "|  designation|        ra|      dec|  w2mpro|\n"
+        "|         char|    double|   double|  double|\n"
+        "|             |       deg|      deg|     mag|\n"
+        "   J085510.74-071442.5  133.7947597   -7.2451456  13.704\n"
+    )
+    (row,) = gaia.parse_ipac_table(text)
+    assert row["designation"] == "J085510.74-071442.5"
+    assert float(row["dec"]) == pytest.approx(-7.2451456)

@@ -50,6 +50,35 @@ def _tap_csv(client: httpx.Client, url: str, adql: str) -> list[dict]:
     return list(csv.DictReader(io.StringIO(raw.decode("utf-8", errors="replace"))))
 
 
+GATOR = "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query"
+
+
+def parse_ipac_table(text: str) -> list[dict]:
+    """Minimal IPAC table reader: '\\' lines are keywords, the first '|' line names the columns,
+    data rows are whitespace-separated (fine for the numeric/designation columns we ask for)."""
+    names: list[str] | None = None
+    rows = []
+    for line in text.splitlines():
+        if not line.strip() or line.startswith("\\"):
+            continue
+        if line.startswith("|"):
+            if names is None:
+                names = [c.strip() for c in line.strip().strip("|").split("|")]
+            continue
+        if names:
+            vals = line.split()
+            if len(vals) >= len(names):
+                rows.append(dict(zip(names, vals)))
+    return rows
+
+
+def gator_cone(client: httpx.Client, catalog: str, ra: float, dec: float, radius_arcsec: float, cols: str) -> list[dict]:
+    params = {"catalog": catalog, "spatial": "cone", "objstr": f"{ra} {dec}", "radius": str(radius_arcsec),
+              "outfmt": "1", "selcols": cols}
+    raw = get_with_retry(client, GATOR, params=params, **META_RETRY)
+    return parse_ipac_table(raw.decode("utf-8", errors="replace"))
+
+
 def _num(v: str) -> float | None:
     try:
         x = float(v)
@@ -106,11 +135,9 @@ def allwise_source(client: httpx.Client, ra: float, dec: float, radius_arcsec: f
     """Nearest AllWISE catalog source (for objects too faint for Gaia, e.g. WISE 0855)."""
 
     def q():
-        adql = (
-            "SELECT designation, ra, dec, w1mpro, w2mpro, w1mjdmean, w2mjdmean FROM allwise_p3as_psd "
-            f"WHERE 1 = CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', {ra}, {dec}, {radius_arcsec / 3600}))"
-        )
-        rows = _tap_csv(client, IRSA_TAP, adql)
+        # Gator, not TAP: IRSA's TAP service hung on this table (2026-11-14) while Gator answered in 2 s.
+        rows = gator_cone(client, "allwise_p3as_psd", ra, dec, radius_arcsec,
+                          "designation,ra,dec,w1mpro,w2mpro,w1mjdmean,w2mjdmean")
         if not rows:
             raise LookupError(f"no AllWISE source near {ra}, {dec}")
         rows.sort(key=lambda r: (float(r["ra"]) - ra) ** 2 + (float(r["dec"]) - dec) ** 2)

@@ -541,7 +541,12 @@ export default function App() {
             </>
           )}
           <div className="mt-2 flex flex-col gap-1 text-xs">
-            <Check label="Include 2010 WISE frame" checked={state.wise} onChange={(v) => set({ wise: v })} disabled={state.mode === "diff"} />
+            <Check
+              label={m.wise.length ? "Include 2010 WISE frame" : "No 2010 WISE frame in this bundle"}
+              checked={state.wise && m.wise.length > 0}
+              onChange={(v) => set({ wise: v })}
+              disabled={state.mode === "diff" || !m.wise.length}
+            />
             <Check label={`Gaia DR3 stars, G < ${GAIA_G_LIMIT} (G)`} checked={showGaia} onChange={setShowGaia} />
             <Check label="Pixel grid (zoom in)" checked={pixelGrid} onChange={setPixelGrid} />
           </div>
