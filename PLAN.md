@@ -2,7 +2,7 @@
 
 NASA Space Apps 2026 entry. A blink comparator, epoch-difference viewer and spectrum explorer for NASA's SPHEREx near-infrared all-sky survey, using real archive data from IRSA.
 
-Status (2026-11-14): **plan only, no code yet.** The pasted spec is kept in `SPEC-original.md`; this file replaces it. Facts below were checked on 2026-11-14 against the live IRSA services and docs. Each is marked **VERIFIED** (with source) or **UNVERIFIED**.
+Status (2026-11-14): **M0 done; M1 code done, real-data bake of all five targets running.** Pipeline (`backend/spherex_blink`) and viewer (blink, difference, 6 detectors, WISE 2010 frame, Gaia markers, URL state, keys) are built and tested (13 pytest, 16 bun tests). A dry-run bake of Barnard's Star from partly fetched real cutouts rendered correctly: the WISE 2010 frame shows the star ~2.8′ south of its SPHEREx position. Cutout fetching runs at ~8/min with frequent 503s (≈45 min per target). Eps Indi B's first SIA search got HTTP 502; re-run it. The pasted spec is kept in `SPEC-original.md`; this file replaces it. Facts below were checked on 2026-11-14 against the live IRSA services and docs. Each is marked **VERIFIED** (with source) or **UNVERIFIED**.
 
 ## 1. What the app is (one paragraph)
 

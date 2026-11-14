@@ -2,7 +2,7 @@
 
 NASA Space Apps 2026 entry: blink comparator, epoch difference and spectrum explorer for NASA's SPHEREx survey, on real IRSA data. **Read `PLAN.md` first** (verified data facts, targets, milestones, acceptance checks). `SPEC-original.md` is the unverified pasted spec: do not take facts from it.
 
-Status: plan only (2026-11-14). Update this file when commands below start to exist.
+Status: M1 code built (2026-11-14); see PLAN.md status line. `uv run python -m spherex_blink bake all` (or ids) fetches + bakes; re-running reuses the cutout cache in `backend/cache/` and retries failures. `... index` rewrites `index.json`. Bake log of the first run: `backend/cache/bake.log`. Vite can serve a stale module after many edits: restart the preview server.
 
 ## Run and test
 
