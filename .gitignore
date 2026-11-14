@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.log
+.env
+.env.*
+__pycache__/
+.venv/
+.pytest_cache/
+backend/cache/
+*.fits
+*.fits.gz

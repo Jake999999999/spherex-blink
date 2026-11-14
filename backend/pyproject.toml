@@ -1,0 +1,26 @@
+[project]
+name = "spherex-blink"
+version = "0.1.0"
+description = "Pipeline that bakes real SPHEREx (IRSA) data into static bundles for the SPHEREx Blink app"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy",
+    "scipy",
+    "astropy",
+    "httpx",
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["spherex_blink"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["network: talks to live IRSA/Gaia; run by hand"]
+addopts = "-m 'not network'"

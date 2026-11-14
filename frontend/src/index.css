@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #05070b;
+  --panel: rgba(10, 14, 23, 0.82);
+  --hairline: rgba(56, 189, 248, 0.18);
+  --text: #cbd5e1;
+  --accent: #38bdf8;
+}
+
+html, body, #root { height: 100%; margin: 0; background: var(--bg); color: var(--text); }
+body { font-family: ui-sans-serif, system-ui, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+.mono { font-family: ui-monospace, "Cascadia Mono", "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; }
+.panel { background: var(--panel); backdrop-filter: blur(12px); border: 1px solid var(--hairline); }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
