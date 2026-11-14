@@ -2,7 +2,16 @@
 
 NASA Space Apps 2026 entry. A blink comparator, epoch-difference viewer and spectrum explorer for NASA's SPHEREx near-infrared all-sky survey, using real archive data from IRSA.
 
-Status (2026-11-14): **M0 done; M1 code done, real-data bake of all five targets running.** Pipeline (`backend/spherex_blink`) and viewer (blink, difference, 6 detectors, WISE 2010 frame, Gaia markers, URL state, keys) are built and tested (13 pytest, 16 bun tests). A dry-run bake of Barnard's Star from partly fetched real cutouts rendered correctly: the WISE 2010 frame shows the star ~2.8′ south of its SPHEREx position. Cutout fetching runs at ~8/min with frequent 503s (≈45 min per target). Eps Indi B's first SIA search got HTTP 502; re-run it. The pasted spec is kept in `SPEC-original.md`; this file replaces it. Facts below were checked on 2026-11-14 against the live IRSA services and docs. Each is marked **VERIFIED** (with source) or **UNVERIFIED**.
+Status (2026-11-14): **M0, M1 and M2 done on real data; all five targets baked** (4.4 MB total). 19 pytest + 28 bun tests, typecheck and build clean; guided tour checked end to end in the browser.
+
+Results on real data:
+- Barnard's Star: motion fit (WISE 2010 + 3 visits, D6) 10.42 ± 0.11″/yr at PA 355° vs Gaia 10.39″/yr. Core saturated in nearly every exposure, so its spectrum is flagged.
+- Eps Indi Ba+Bb: 4 visits, 459 spectral points; clear H₂O (1.4, 1.9 µm), CH₄ (2.3, 3.3 µm), CO₂ (4.3 µm) and CO (4.6 µm) features, absent in a field star. Difference image shows the ± pair.
+- Pole LPV (Gaia DR3 2160548942811758720): saturated in every detector; light curve uses ring photometry (9–25″ ring). D6 fades ~429 → 241 mJy and back to 574 over 18 months; field star steady to ~2%.
+- RW Aur: saturated on D2–D6; D1 hints at a 20–40% change between visits (2–11 clean points per visit). **Keep/drop: owner to decide.**
+- WISE 0855: **fails** its condition. In 2025–26 it passes 4–11″ from a G = 16.3 star, inside the aperture; the measured light is mostly that star. **Drop or replace: owner to decide.**
+
+Things learned: IRSA's SIA/TAP had multi-hour 502 outages today and the AllWISE TAP query hung; SIA results are now cached, metadata retries last ~4 min, the AllWISE catalogue goes through Gator, and the WISE 2010 frame is optional at bake time. Most demo targets are too bright for SPHEREx's cores: check saturation before picking new targets. The pasted spec is kept in `SPEC-original.md`; this file replaces it. Facts below were checked on 2026-11-14 against the live IRSA services and docs. Each is marked **VERIFIED** (with source) or **UNVERIFIED**.
 
 ## 1. What the app is (one paragraph)
 

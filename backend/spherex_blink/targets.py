@@ -84,6 +84,8 @@ TARGETS: dict[str, Target] = {
             pm_mas_yr=(-8118.0, 680.0),
             pm_source="Luhman & Esplin 2016 (UNVERIFIED in PLAN.md)",
             status="conditional",
+            notes=["In 2025–26 it passes 4–11″ from a Gaia G = 16.3 background star, inside SPHEREx's aperture: "
+                   "the light measured here is mostly that star, so this is not a detection of WISE 0855."],
         ),
     ]
 }

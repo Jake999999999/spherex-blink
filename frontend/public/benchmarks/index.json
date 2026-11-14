@@ -6,6 +6,11 @@
    "status": "ready"
   },
   {
+   "id": "eps-ind-b",
+   "name": "Epsilon Indi Ba+Bb",
+   "status": "ready"
+  },
+  {
    "id": "nep-lpv",
    "name": "Pulsating red giant (Gaia DR3 2160548942811758720)",
    "status": "ready"
@@ -13,6 +18,11 @@
   {
    "id": "rw-aur",
    "name": "RW Aurigae",
+   "status": "conditional"
+  },
+  {
+   "id": "wise-0855",
+   "name": "WISE 0855\u22120714",
    "status": "conditional"
   }
  ]
