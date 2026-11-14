@@ -1,0 +1,426 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Download, X } from "lucide-react";
+import type { Epoch } from "../lib/bundle";
+import { FLAG_OK, REFERENCE_BANDS, points, toCsv, type Point, type Spectra, type SpectraSource } from "../lib/spectra";
+import { formatMjdRange, mjdToDate, mjdToYear } from "../lib/astro";
+import { formatNumber, logTicks, niceTicks, robustRange } from "../lib/ticks";
+
+// Dark-mode categorical slots 1–4 (validated on this panel's surface; direct labels are the secondary encoding).
+const VISIT_COLORS = ["#3987e5", "#d95926", "#199e70", "#c98500"];
+// Ordinal blue ramp for more than four visits (deep-field time bins) and for wavelength in the light curve.
+const BLUE_RAMP = ["#86b6ef", "#6da7ec", "#5598e7", "#3987e5", "#2a78d6", "#256abf", "#1c5cab", "#184f95"];
+
+export const visitColor = (e: number, nVisits: number) =>
+  nVisits <= VISIT_COLORS.length ? VISIT_COLORS[e] ?? "#94a3b8" : BLUE_RAMP[Math.round((e / Math.max(1, nVisits - 1)) * (BLUE_RAMP.length - 1))];
+
+const rampAt = (t: number) => BLUE_RAMP[Math.round(Math.min(1, Math.max(0, t)) * (BLUE_RAMP.length - 1))];
+
+export type PanelTab = "spectrum" | "lightcurve" | "table";
+
+interface Props {
+  spectra: Spectra;
+  source: SpectraSource;
+  epochs: Epoch[];
+  detectors: { detector: number; wl_min: number; wl_max: number }[];
+  band: number;
+  tab: PanelTab;
+  onTab: (t: PanelTab) => void;
+  onClose: () => void;
+  children?: React.ReactNode; // extra tools (motion fit)
+}
+
+export function SpectrumPanel({ spectra, source, epochs, detectors, band, tab, onTab, onClose, children }: Props) {
+  const pts = useMemo(() => points(spectra, source), [spectra, source]);
+  const nGood = pts.filter((p) => p.flag === FLAG_OK).length;
+  const [lcBand, setLcBand] = useState(band);
+  useEffect(() => setLcBand(band), [band]);
+  const [logY, setLogY] = useState(false);
+
+  const download = () => {
+    const blob = new Blob([toCsv(source, pts)], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${source.id}-spherex-photometry.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+
+  return (
+    <section className="panel flex h-full flex-col rounded-t p-3 text-sm" aria-label="Spectrum and light curve">
+      <header className="mb-2 flex flex-wrap items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate font-semibold text-slate-100">{source.name}</h2>
+          <p className="text-xs text-slate-400">
+            {pts.length} single-exposure measurements · {nGood} unflagged{source.g !== null ? ` · Gaia G = ${source.g.toFixed(1)}` : ""}
+          </p>
+        </div>
+        <div className="flex gap-1 rounded border border-sky-400/20 p-0.5" role="tablist">
+          {(["spectrum", "lightcurve", "table"] as const).map((t) => (
+            <button
+              key={t}
+              role="tab"
+              aria-selected={tab === t}
+              onClick={() => onTab(t)}
+              className={`rounded px-2 py-0.5 text-xs ${tab === t ? "bg-sky-400/20 text-sky-100" : "text-slate-400 hover:text-slate-200"}`}
+            >
+              {t === "spectrum" ? "Spectrum" : t === "lightcurve" ? "Light curve" : "Table"}
+            </button>
+          ))}
+        </div>
+        <button title="Download CSV" aria-label="Download CSV" onClick={download} className="rounded p-1 text-slate-300 hover:bg-sky-400/10">
+          <Download size={14} />
+        </button>
+        <button title="Close" aria-label="Close" onClick={onClose} className="rounded p-1 text-slate-300 hover:bg-sky-400/10">
+          <X size={14} />
+        </button>
+      </header>
+      {children}
+      {pts.length > 0 && nGood < pts.length * 0.2 && (
+        <p className="mb-1 text-[11px] text-amber-300">
+          Most measurements touch saturated or masked pixels (hollow dots): this star is too bright for SPHEREx at most wavelengths, so the
+          shape and level are not reliable. Field stars and fainter targets give clean spectra.
+        </p>
+      )}
+      <div className="min-h-0 flex-1">
+        {pts.length === 0 ? (
+          <p className="p-4 text-xs text-slate-400">No usable measurements for this source.</p>
+        ) : tab === "spectrum" ? (
+          <SpectrumChart pts={pts} epochs={epochs} detectors={detectors} logY={logY} />
+        ) : tab === "lightcurve" ? (
+          <LightCurveChart pts={pts.filter((p) => p.det === lcBand)} det={detectors[lcBand - 1]} />
+        ) : (
+          <PointTable pts={pts} />
+        )}
+      </div>
+      <footer className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+        {tab === "spectrum" && (
+          <label className="flex items-center gap-1">
+            <input type="checkbox" checked={logY} onChange={(e) => setLogY(e.target.checked)} /> log flux
+          </label>
+        )}
+        {tab === "lightcurve" && (
+          <span className="flex items-center gap-1">
+            Detector
+            {detectors.map((d) => (
+              <button
+                key={d.detector}
+                onClick={() => setLcBand(d.detector)}
+                className={`mono rounded border px-1.5 ${lcBand === d.detector ? "border-sky-400 text-sky-200" : "border-sky-400/20 text-slate-400"}`}
+              >
+                D{d.detector}
+              </button>
+            ))}
+          </span>
+        )}
+        <span>
+          {spectra.aperture_arcsec}″ aperture, local sky subtracted, no aperture correction: compare points with each other, not with catalogue magnitudes.
+        </span>
+      </footer>
+    </section>
+  );
+}
+
+// ------------------------------------------------------------------ shared chart plumbing
+
+function useWidth<T extends HTMLElement>() {
+  const ref = useRef<T>(null);
+  const [size, setSize] = useState({ w: 600, h: 260 });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth || 600, h: Math.max(180, el.clientHeight || 260) }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, size] as const;
+}
+
+const M = { l: 52, r: 14, t: 26, b: 30 };
+
+interface Hover {
+  p: Point;
+  sx: number;
+  sy: number;
+}
+
+function Tooltip({ h, w, color }: { h: Hover; w: number; color: string }) {
+  const left = h.sx > w - 200 ? h.sx - 196 : h.sx + 12;
+  return (
+    <div className="pointer-events-none absolute z-10 w-48 rounded border border-sky-400/30 bg-slate-950/95 p-2 text-[11px] leading-tight" style={{ left, top: Math.max(0, h.sy - 30) }}>
+      <div className="mb-1 flex items-center gap-1.5 text-slate-300">
+        <span className="inline-block h-2 w-2 rounded-full" style={{ background: color }} />
+        Visit {h.p.epoch + 1} · D{h.p.det}
+      </div>
+      <div className="mono text-slate-100">{h.p.wl.toFixed(3)} µm{h.p.bw ? ` (Δ ${h.p.bw.toFixed(3)})` : ""}</div>
+      <div className="mono text-slate-100">
+        {formatNumber(h.p.flux)} ± {formatNumber(h.p.err)} mJy
+      </div>
+      <div className="mono text-slate-400">{mjdToDate(h.p.mjd).toISOString().slice(0, 10)} · MJD {h.p.mjd.toFixed(2)}</div>
+      {h.p.flag !== FLAG_OK && <div className="mt-1 text-amber-300">{h.p.flag === 2 ? "Saturated pixel in aperture" : "Masked pixel in aperture"}</div>}
+    </div>
+  );
+}
+
+function nearest(pts: Point[], sx: (p: Point) => number, sy: (p: Point) => number, mx: number, my: number, max = 14): Point | null {
+  let best: Point | null = null;
+  let bd = max;
+  for (const p of pts) {
+    const d = Math.hypot(sx(p) - mx, sy(p) - my);
+    if (d < bd) {
+      bd = d;
+      best = p;
+    }
+  }
+  return best;
+}
+
+// ------------------------------------------------------------------ spectrum
+
+function SpectrumChart({ pts, epochs, detectors, logY }: { pts: Point[]; epochs: Epoch[]; detectors: Props["detectors"]; logY: boolean }) {
+  const [ref, { w, h }] = useWidth<HTMLDivElement>();
+  const [hover, setHover] = useState<Hover | null>(null);
+  const nV = epochs.length;
+  const good = pts.filter((p) => p.flag === FLAG_OK);
+  const yVals = (good.length >= 5 ? good : pts).map((p) => p.flux);
+  let [y0, y1] = robustRange(yVals);
+  if (logY) {
+    const pos = yVals.filter((v) => v > 0).sort((a, b) => a - b);
+    y0 = pos.length ? pos[0] * 0.7 : 0.01;
+    y1 = pos.length ? pos[pos.length - 1] * 1.4 : 1;
+  }
+  const x0 = 0.7;
+  const x1 = 5.05;
+  const iw = w - M.l - M.r;
+  const ih = h - M.t - M.b;
+  const sx = (wl: number) => M.l + ((wl - x0) / (x1 - x0)) * iw;
+  const sy = (v: number) => {
+    if (logY) {
+      const t = (Math.log10(Math.max(v, y0)) - Math.log10(y0)) / (Math.log10(y1) - Math.log10(y0));
+      return M.t + (1 - t) * ih;
+    }
+    return M.t + (1 - (v - y0) / (y1 - y0)) * ih;
+  };
+  const clampY = (v: number) => Math.min(M.t + ih, Math.max(M.t, sy(v)));
+  const yt = logY ? logTicks(y0, y1) : niceTicks(y0, y1, 5);
+  const visits = [...new Set(pts.map((p) => p.epoch))].filter((e) => e >= 0).sort((a, b) => a - b);
+
+  // direct labels: each visit at its longest-wavelength unflagged point
+  const labels = nV <= 4
+    ? visits.map((e) => {
+        const vp = pts.filter((p) => p.epoch === e && p.flag === FLAG_OK).sort((a, b) => b.wl - a.wl)[0];
+        return vp ? { e, x: sx(vp.wl), y: clampY(vp.flux) } : null;
+      }).filter((l): l is { e: number; x: number; y: number } => !!l)
+    : [];
+  // keep labels apart vertically
+  labels.sort((a, b) => a.y - b.y).forEach((l, i, arr) => {
+    if (i && l.y - arr[i - 1].y < 12) l.y = arr[i - 1].y + 12;
+  });
+
+  return (
+    <div className="flex h-full flex-col">
+      <Legend
+        items={visits.map((e) => ({ color: visitColor(e, nV), label: `V${e + 1} ${formatMjdRange(epochs[e].mjd_min, epochs[e].mjd_max)}` }))}
+        extra="hollow = flagged"
+      />
+      <div ref={ref} className="relative min-h-0 flex-1" onPointerLeave={() => setHover(null)}>
+        <svg
+          width={w}
+          height={h}
+          role="img"
+          aria-label="Flux against wavelength for each SPHEREx exposure"
+          onPointerMove={(ev) => {
+            const r = (ev.currentTarget as SVGSVGElement).getBoundingClientRect();
+            const p = nearest(pts, (q) => sx(q.wl), (q) => clampY(q.flux), ev.clientX - r.left, ev.clientY - r.top);
+            setHover(p ? { p, sx: sx(p.wl), sy: clampY(p.flux) } : null);
+          }}
+        >
+          {detectors.map((d, i) => (
+            <g key={d.detector}>
+              {i % 2 === 0 && <rect x={sx(d.wl_min)} y={M.t} width={sx(d.wl_max) - sx(d.wl_min)} height={ih} fill="rgba(148,163,184,0.05)" />}
+              <text x={(sx(d.wl_min) + sx(d.wl_max)) / 2} y={M.t + ih - 4} textAnchor="middle" className="fill-slate-600 text-[10px]">
+                D{d.detector}
+              </text>
+            </g>
+          ))}
+          {REFERENCE_BANDS.map((b, i) => (
+            <g key={`${b.label}${b.wl}`}>
+              <line x1={sx(b.wl)} x2={sx(b.wl)} y1={M.t} y2={M.t + ih} stroke="rgba(148,163,184,0.25)" strokeDasharray="2 4" />
+              <text x={sx(b.wl)} y={M.t - (i % 2 ? 4 : 14)} textAnchor="middle" className="fill-slate-500 text-[10px]">
+                {b.label}
+              </text>
+            </g>
+          ))}
+          {yt.map((v) => (
+            <g key={v}>
+              <line x1={M.l} x2={M.l + iw} y1={sy(v)} y2={sy(v)} stroke="rgba(148,163,184,0.1)" />
+              <text x={M.l - 6} y={sy(v) + 3} textAnchor="end" className="fill-slate-400 text-[10px]">
+                {formatNumber(v)}
+              </text>
+            </g>
+          ))}
+          {niceTicks(1, 5, 4).map((v) => (
+            <text key={v} x={sx(v)} y={M.t + ih + 14} textAnchor="middle" className="fill-slate-400 text-[10px]">
+              {v}
+            </text>
+          ))}
+          <text x={M.l + iw / 2} y={h - 3} textAnchor="middle" className="fill-slate-500 text-[10px]">
+            wavelength (µm)
+          </text>
+          <text transform={`translate(11 ${M.t + ih / 2}) rotate(-90)`} textAnchor="middle" className="fill-slate-500 text-[10px]">
+            flux (mJy)
+          </text>
+          <g>
+            {pts.map((p) => {
+              const c = visitColor(p.epoch, nV);
+              const y = clampY(p.flux);
+              const e1 = clampY(p.flux - p.err);
+              const e2 = clampY(p.flux + p.err);
+              return (
+                <g key={p.i}>
+                  {e1 - e2 > 3 && <line x1={sx(p.wl)} x2={sx(p.wl)} y1={e1} y2={e2} stroke={c} strokeOpacity={0.5} />}
+                  <circle cx={sx(p.wl)} cy={y} r={4} fill={p.flag === FLAG_OK ? c : "none"} stroke={p.flag === FLAG_OK ? "#0b1019" : c} strokeWidth={p.flag === FLAG_OK ? 1 : 1.5} />
+                </g>
+              );
+            })}
+          </g>
+          {labels.map((l) => (
+            <text key={l.e} x={Math.min(l.x + 7, M.l + iw - 2)} y={l.y + 3} textAnchor={l.x + 30 > M.l + iw ? "end" : "start"} className="fill-slate-300 text-[10px]">
+              V{l.e + 1}
+            </text>
+          ))}
+          {hover && <circle cx={hover.sx} cy={hover.sy} r={7} fill="none" stroke="#f0efec" strokeWidth={1.5} />}
+        </svg>
+        {hover && <Tooltip h={hover} w={w} color={visitColor(hover.p.epoch, nV)} />}
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ light curve
+
+function LightCurveChart({ pts, det }: { pts: Point[]; det: { detector: number; wl_min: number; wl_max: number } }) {
+  const [ref, { w, h }] = useWidth<HTMLDivElement>();
+  const [hover, setHover] = useState<Hover | null>(null);
+  if (!pts.length) return <p className="p-4 text-xs text-slate-400">No measurements on detector {det.detector}.</p>;
+  const good = pts.filter((p) => p.flag === FLAG_OK);
+  const [y0, y1] = robustRange((good.length >= 5 ? good : pts).map((p) => p.flux));
+  const years = pts.map((p) => mjdToYear(p.mjd));
+  const pad = Math.max(0.05, (Math.max(...years) - Math.min(...years)) * 0.04);
+  const x0 = Math.min(...years) - pad;
+  const x1 = Math.max(...years) + pad;
+  const iw = w - M.l - M.r;
+  const ih = h - M.t - M.b;
+  const sx = (yr: number) => M.l + ((yr - x0) / (x1 - x0)) * iw;
+  const sy = (v: number) => Math.min(M.t + ih, Math.max(M.t, M.t + (1 - (v - y0) / (y1 - y0)) * ih));
+  const wlT = (wl: number) => (wl - det.wl_min) / (det.wl_max - det.wl_min);
+  const xt = niceTicks(x0, x1, 5);
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex items-center gap-2 px-1 pb-1 text-[11px] text-slate-400">
+        <span>Colour = wavelength inside D{det.detector}:</span>
+        <span className="mono">{det.wl_min}</span>
+        <span className="h-2 w-24 rounded" style={{ background: `linear-gradient(90deg, ${BLUE_RAMP.join(",")})` }} />
+        <span className="mono">{det.wl_max} µm</span>
+        <span className="ml-auto">hollow = flagged</span>
+      </div>
+      <div ref={ref} className="relative min-h-0 flex-1" onPointerLeave={() => setHover(null)}>
+        <svg
+          width={w}
+          height={h}
+          role="img"
+          aria-label={`Flux against date on detector ${det.detector}`}
+          onPointerMove={(ev) => {
+            const r = (ev.currentTarget as SVGSVGElement).getBoundingClientRect();
+            const p = nearest(pts, (q) => sx(mjdToYear(q.mjd)), (q) => sy(q.flux), ev.clientX - r.left, ev.clientY - r.top);
+            setHover(p ? { p, sx: sx(mjdToYear(p.mjd)), sy: sy(p.flux) } : null);
+          }}
+        >
+          {niceTicks(y0, y1, 5).map((v) => (
+            <g key={v}>
+              <line x1={M.l} x2={M.l + iw} y1={sy(v)} y2={sy(v)} stroke="rgba(148,163,184,0.1)" />
+              <text x={M.l - 6} y={sy(v) + 3} textAnchor="end" className="fill-slate-400 text-[10px]">
+                {formatNumber(v)}
+              </text>
+            </g>
+          ))}
+          {xt.map((v) => (
+            <text key={v} x={sx(v)} y={M.t + ih + 14} textAnchor="middle" className="fill-slate-400 text-[10px]">
+              {v.toFixed(xt.length > 1 && xt[1] - xt[0] < 1 ? 1 : 0)}
+            </text>
+          ))}
+          <text x={M.l + iw / 2} y={h - 3} textAnchor="middle" className="fill-slate-500 text-[10px]">
+            year
+          </text>
+          <text transform={`translate(11 ${M.t + ih / 2}) rotate(-90)`} textAnchor="middle" className="fill-slate-500 text-[10px]">
+            flux (mJy)
+          </text>
+          {pts.map((p) => {
+            const c = rampAt(wlT(p.wl));
+            const x = sx(mjdToYear(p.mjd));
+            const y = sy(p.flux);
+            return (
+              <g key={p.i}>
+                {sy(p.flux - p.err) - sy(p.flux + p.err) > 3 && <line x1={x} x2={x} y1={sy(p.flux - p.err)} y2={sy(p.flux + p.err)} stroke={c} strokeOpacity={0.5} />}
+                <circle cx={x} cy={y} r={4} fill={p.flag === FLAG_OK ? c : "none"} stroke={p.flag === FLAG_OK ? "#0b1019" : c} strokeWidth={p.flag === FLAG_OK ? 1 : 1.5} />
+              </g>
+            );
+          })}
+          {hover && <circle cx={hover.sx} cy={hover.sy} r={7} fill="none" stroke="#f0efec" strokeWidth={1.5} />}
+        </svg>
+        {hover && <Tooltip h={hover} w={w} color={rampAt(wlT(hover.p.wl))} />}
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ table
+
+function PointTable({ pts }: { pts: Point[] }) {
+  return (
+    <div className="h-full overflow-auto">
+      <table className="mono w-full text-[11px]">
+        <thead className="sticky top-0 bg-slate-950 text-left text-slate-400">
+          <tr>
+            <th className="px-2 py-1">date</th>
+            <th className="px-2">visit</th>
+            <th className="px-2">det</th>
+            <th className="px-2 text-right">λ µm</th>
+            <th className="px-2 text-right">flux mJy</th>
+            <th className="px-2 text-right">± mJy</th>
+            <th className="px-2">flag</th>
+          </tr>
+        </thead>
+        <tbody>
+          {[...pts]
+            .sort((a, b) => a.wl - b.wl)
+            .map((p) => (
+              <tr key={p.i} className="border-t border-sky-400/10 text-slate-200">
+                <td className="px-2 py-0.5">{mjdToDate(p.mjd).toISOString().slice(0, 10)}</td>
+                <td className="px-2">V{p.epoch + 1}</td>
+                <td className="px-2">D{p.det}</td>
+                <td className="px-2 text-right">{p.wl.toFixed(3)}</td>
+                <td className="px-2 text-right">{formatNumber(p.flux)}</td>
+                <td className="px-2 text-right">{formatNumber(p.err)}</td>
+                <td className="px-2 text-amber-300">{p.flag === 2 ? "saturated" : p.flag === 1 ? "masked" : ""}</td>
+              </tr>
+            ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function Legend({ items, extra }: { items: { color: string; label: string }[]; extra?: string }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 pb-1 text-[11px] text-slate-300">
+      {items.map((it) => (
+        <span key={it.label} className="flex items-center gap-1.5">
+          <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: it.color }} />
+          {it.label}
+        </span>
+      ))}
+      {extra && <span className="ml-auto text-slate-500">{extra}</span>}
+    </div>
+  );
+}

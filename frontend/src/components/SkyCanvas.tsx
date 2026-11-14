@@ -33,6 +33,20 @@ interface Props {
   onHover?: (info: HoverInfo | null) => void;
   /** value lookup for hover readout */
   valueAt?: (x: number, y: number) => number | null;
+  /** click (not drag) at a data-pixel position */
+  onPick?: (x: number, y: number) => void;
+  /** highlighted source (moves with the frame date) */
+  selected?: MovingSource | null;
+  /** measured positions to mark (data pixels) */
+  marks?: { x: number; y: number; label: string }[];
+}
+
+export interface MovingSource {
+  ra: number;
+  dec: number;
+  pmra: number;
+  pmdec: number;
+  ref_year: number;
 }
 
 export interface HoverInfo {
@@ -43,7 +57,7 @@ export interface HoverInfo {
   value: number | null;
 }
 
-export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, onHover, valueAt }: Props) {
+export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, onHover, valueAt, onPick, selected, marks }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const glRef = useRef<HTMLCanvasElement>(null);
   const ovRef = useRef<HTMLCanvasElement>(null);
@@ -106,8 +120,8 @@ export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, o
     r.resize(W, H, dpr);
     const v = viewRef.current;
     r.draw({ ...draw, zoom: v.zoom, centerX: v.cx, centerY: v.cy });
-    drawOverlay(ov, W, H, dpr, v, bundle, step, diffMjds, showGaia);
-  }, [draw, bundle, step, diffMjds, showGaia]);
+    drawOverlay(ov, W, H, dpr, v, bundle, step, diffMjds, showGaia, selected ?? null, marks ?? []);
+  }, [draw, bundle, step, diffMjds, showGaia, selected, marks]);
 
   useEffect(() => {
     paint();
@@ -136,7 +150,7 @@ export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, o
     return [v.cx + (sx - el.clientWidth / 2) / v.zoom, v.cy - (sy - el.clientHeight / 2) / v.zoom] as const;
   };
 
-  const drag = useRef<{ x: number; y: number; cx: number; cy: number } | null>(null);
+  const drag = useRef<{ x: number; y: number; cx: number; cy: number; moved: boolean } | null>(null);
 
   return (
     <div
@@ -157,14 +171,23 @@ export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, o
       }}
       onPointerDown={(e) => {
         (e.target as HTMLElement).setPointerCapture(e.pointerId);
-        drag.current = { x: e.clientX, y: e.clientY, cx: viewRef.current.cx, cy: viewRef.current.cy };
+        drag.current = { x: e.clientX, y: e.clientY, cx: viewRef.current.cx, cy: viewRef.current.cy, moved: false };
       }}
-      onPointerUp={() => (drag.current = null)}
+      onPointerUp={(e) => {
+        const d = drag.current;
+        drag.current = null;
+        if (d && !d.moved && onPick) {
+          const rect = wrapRef.current!.getBoundingClientRect();
+          const [x, y] = toData(e.clientX - rect.left, e.clientY - rect.top);
+          onPick(x - 0.5, y - 0.5); // continuous -> pixel-centre convention
+        }
+      }}
       onPointerLeave={() => onHover?.(null)}
       onPointerMove={(e) => {
         const d = drag.current;
         const v = viewRef.current;
-        if (d) {
+        if (d && !d.moved && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4) d.moved = true;
+        if (d && d.moved) {
           v.cx = d.cx - (e.clientX - d.x) / v.zoom;
           v.cy = d.cy + (e.clientY - d.y) / v.zoom;
           bump();
@@ -199,6 +222,8 @@ function drawOverlay(
   step: Step | null,
   diffMjds: [number, number] | undefined,
   showGaia: boolean,
+  selected: MovingSource | null,
+  marks: { x: number; y: number; label: string }[],
 ) {
   const w = Math.round(W * dpr);
   const h = Math.round(H * dpr);
@@ -264,6 +289,31 @@ function drawOverlay(
     }
     ctx.stroke();
   });
+
+  // selected source: a ring at its catalogue position for the shown date
+  if (selected && years.length) {
+    const [ra, dec] = propagate(selected.ra, selected.dec, selected.pmra, selected.pmdec, selected.ref_year, years[years.length - 1]);
+    const [sx, sy] = sky(ra, dec);
+    ctx.strokeStyle = "#f0efec";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(sx, sy, Math.max(10, 3.2 * v.zoom), 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  // measured centroids
+  ctx.font = "10px ui-monospace, Consolas, monospace";
+  for (const m of marks) {
+    const [sx, sy] = toScreen(m.x, m.y);
+    ctx.strokeStyle = ctx.fillStyle = "#e879f9";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(sx - 4, sy - 4);
+    ctx.lineTo(sx + 4, sy + 4);
+    ctx.moveTo(sx + 4, sy - 4);
+    ctx.lineTo(sx - 4, sy + 4);
+    ctx.stroke();
+    ctx.fillText(m.label, sx + 6, sy - 6);
+  }
 
   // scale bar (1 arcmin) and compass, bottom left
   const pxPerArcmin = (60 / b.meta.pixel_scale_arcsec) * v.zoom;

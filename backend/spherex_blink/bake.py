@@ -17,7 +17,7 @@ from pathlib import Path
 import httpx
 import numpy as np
 
-from . import __version__, frames, gaia, irsa, wise
+from . import __version__, frames, gaia, irsa, photometry, wise
 from .targets import TARGETS, Target
 
 OUT_ROOT = Path(__file__).resolve().parents[2] / "frontend" / "public" / "benchmarks"
@@ -80,6 +80,76 @@ def subsample(exps: list[irsa.Exposure], max_n: int) -> list[irsa.Exposure]:
             idx = np.unique(np.round(np.linspace(0, len(ed) - 1, per)).astype(int))
             out.extend(ed[i] for i in idx)
     return sorted(out, key=lambda e: (e.mjd, e.detector))
+
+
+MAX_FIELD_SOURCES = 30
+FIELD_G_MAX = 15.0
+
+
+def photometry_sources(t: Target, motion: dict, field: list[dict], grid, npix: int) -> list[dict]:
+    """The target first, then the brightest Gaia stars inside the frame (spectra are baked only for these)."""
+    srcs = [{
+        "id": "target", "name": t.name, "gaia_id": t.gaia_id, "g": motion.get("g"),
+        "ra": motion["ra"], "dec": motion["dec"], "pmra": motion["pmra"], "pmdec": motion["pmdec"],
+        "ref_year": motion["ref_year"],
+    }]
+    margin = 4
+    for s in sorted((s for s in field if s["g"] is not None and s["g"] < FIELD_G_MAX), key=lambda s: s["g"]):
+        if t.gaia_id and s["source_id"] == t.gaia_id:
+            continue
+        if gaia_sep_arcsec(s["ra"], s["dec"], motion["ra"], motion["dec"]) < 8 and motion["ref_year"] == gaia.GAIA_EPOCH:
+            continue  # blended with the target (e.g. a close companion)
+        x, y = grid.world_to_pixel_values(*position_at({**s, "ref_year": gaia.GAIA_EPOCH}, NOW_YEAR))
+        if not (margin <= x < npix - margin and margin <= y < npix - margin):
+            continue
+        srcs.append({
+            "id": f"gaia-{s['source_id']}", "name": f"Gaia DR3 {s['source_id']}", "gaia_id": s["source_id"], "g": s["g"],
+            "ra": s["ra"], "dec": s["dec"], "pmra": s["pmra"], "pmdec": s["pmdec"], "ref_year": gaia.GAIA_EPOCH,
+        })
+        if len(srcs) > MAX_FIELD_SOURCES:
+            break
+    return srcs
+
+
+def gaia_sep_arcsec(ra1: float, dec1: float, ra2: float, dec2: float) -> float:
+    dra = (ra1 - ra2) * math.cos(math.radians(0.5 * (dec1 + dec2)))
+    return math.hypot(dra, dec1 - dec2) * 3600.0
+
+
+def measure_spectra(loaded: list, epoch_of: dict[int, int], sources: list[dict]) -> dict:
+    """One point per (exposure, source): exposure-level columns are shared, per-source arrays align with them."""
+    cols = {"mjd": [], "det": [], "epoch": []}
+    per = [{**s, "flux": [], "err": [], "flag": [], "wl": [], "bw": []} for s in sources]
+    for i, (e, ex, _img, _var) in enumerate(loaded):
+        cols["mjd"].append(round(e.mjd, 5))
+        cols["det"].append(e.detector)
+        cols["epoch"].append(epoch_of.get(i, -1))
+        year = gaia.mjd_to_year(e.mjd)
+        for s in per:
+            ra, dec = gaia.propagate(s["ra"], s["dec"], s["pmra"], s["pmdec"], s["ref_year"], year)
+            x, y = ex.wcs.world_to_pixel_values(ra, dec)
+            x, y = float(x), float(y)
+            p = photometry.aperture(ex.image, ex.variance, ex.good, ex.overflow, x, y)
+            ok = math.isfinite(p.flux)
+            # The filter wavelength changes across the detector, so each source gets its own.
+            wl = photometry.wavelength_at(ex.wave_wcs, x, y) if ok else None
+            if ok and wl is None:
+                ok = False
+            s["flux"].append(round(p.flux, 4) if ok else None)
+            s["err"].append(round(p.err, 4) if ok else None)
+            s["flag"].append(p.flag)
+            s["wl"].append(round(wl[0], 4) if ok else None)
+            s["bw"].append(round(wl[1], 4) if ok and math.isfinite(wl[1]) else None)
+    return {
+        "units": "mJy",
+        "aperture_arcsec": round(photometry.R_AP * frames.PIXEL_SCALE_ARCSEC, 1),
+        "sky_annulus_arcsec": [photometry.R_IN * frames.PIXEL_SCALE_ARCSEC, photometry.R_OUT * frames.PIXEL_SCALE_ARCSEC],
+        "note": "Aperture sums with a local sky annulus, no aperture correction: compare points with each other, "
+        "not with catalogue magnitudes. Wavelength is the filter centre at the source's pixel in that exposure.",
+        "flags": {"0": "ok", "1": "masked pixel in aperture", "2": "saturated pixel in aperture"},
+        "exposures": cols,
+        "sources": per,
+    }
 
 
 def _progress(done: int, failed: int, total: int) -> None:
@@ -167,6 +237,15 @@ def bake(target_id: str, client: httpx.Client | None = None, out_root: Path = OU
         wise_frames = wise.allwise_frames(client, cra, cdec, size_deg, grid, shape)
         field = gaia.cone(client, cra, cdec, t.fov_arcmin / 60.0 * 0.75, gmax=19.0)
 
+        epoch_of = {}
+        for ei, g in enumerate(groups):
+            for i in g:
+                epoch_of[i] = ei
+        sources = photometry_sources(t, motion, field, grid, npix)
+        spectra = measure_spectra(loaded, epoch_of, sources)
+        n_pts = sum(1 for f in spectra["sources"][0]["flux"] if f is not None)
+        print(f"  photometry: {len(sources)} sources, target has {n_pts} points", flush=True)
+
         out = out_root / t.id
         out.mkdir(parents=True, exist_ok=True)
         blobs = [cube.tobytes(), vcube.tobytes()] + [w["image"].astype(np.float32).tobytes() for w in wise_frames]
@@ -212,6 +291,7 @@ def bake(target_id: str, client: httpx.Client | None = None, out_root: Path = OU
         }
         (out / "meta.json").write_text(json.dumps(meta, separators=(",", ":")))
         (out / "gaia.json").write_text(json.dumps({"ref_year": gaia.GAIA_EPOCH, "stars": field}, separators=(",", ":")))
+        (out / "spectra.json").write_text(json.dumps(spectra, separators=(",", ":")))
         size = sum(f.stat().st_size for f in out.iterdir())
         print(f"  wrote {out} ({size / 1e6:.2f} MB, {E} visits, {len(wise_frames)} WISE frames, {len(field)} Gaia stars)", flush=True)
         if size > MAX_BUNDLE_BYTES:

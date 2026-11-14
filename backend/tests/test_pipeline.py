@@ -141,3 +141,45 @@ def test_parse_spherex_rows_filters_non_science():
     ]
     (e,) = irsa.parse_spherex_rows(rows)
     assert e.detector == 4 and e.mjd == 2.0
+
+
+# ---------------------------------------------------------------- photometry
+
+from spherex_blink import photometry  # noqa: E402
+
+
+def _star_field(flux_total=100.0, sigma=0.9, x0=20.3, y0=19.6, shape=(41, 41), sky=0.5):
+    img = gaussian(shape, x0, y0, sigma=sigma, amp=1.0)
+    img = img / img.sum() * flux_total + sky
+    return img, np.full(shape, 1e-6), np.ones(shape, bool), np.zeros(shape, bool)
+
+
+def test_aperture_recovers_synthetic_flux_within_2_percent():
+    img, var, good, ovf = _star_field()
+    p = photometry.aperture(img, var, good, ovf, 20.3, 19.6, r_ap=3.0)
+    expected = 100.0 * photometry.MJY_SR_TO_MJY_PER_PIXEL
+    assert abs(p.flux - expected) / expected < 0.02
+    assert p.flag == photometry.FLAG_OK
+    assert p.sky == pytest.approx(0.5, abs=1e-3)
+
+
+def test_aperture_flags_saturated_and_masked_pixels():
+    img, var, good, ovf = _star_field()
+    ovf[20, 20] = True
+    good[20, 20] = False
+    assert photometry.aperture(img, var, good, ovf, 20.3, 19.6).flag == photometry.FLAG_SATURATED
+    img, var, good, ovf = _star_field()
+    good[19, 21] = False
+    assert photometry.aperture(img, var, good, ovf, 20.3, 19.6).flag == photometry.FLAG_BAD_PIXEL
+
+
+def test_aperture_off_the_edge_is_nan():
+    img, var, good, ovf = _star_field()
+    assert math.isnan(photometry.aperture(img, var, good, ovf, 0.5, 20).flux)
+
+
+def test_aperture_error_grows_with_variance():
+    img, var, good, ovf = _star_field()
+    lo = photometry.aperture(img, var, good, ovf, 20.3, 19.6).err
+    hi = photometry.aperture(img, var * 100, good, ovf, 20.3, 19.6).err
+    assert hi > 5 * lo

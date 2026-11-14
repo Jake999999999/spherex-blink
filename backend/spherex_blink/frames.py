@@ -93,6 +93,7 @@ class Exposure2D:
     detector: int
     mjd: float
     wavelength_um: float | None  # at the cutout centre
+    wave_wcs: WCS | None = None  # per-pixel (wavelength, bandwidth) lookup
 
 
 def load_exposure(path, subtract_background: bool = True) -> Exposure2D:
@@ -104,13 +105,14 @@ def load_exposure(path, subtract_background: bool = True) -> Exposure2D:
         flags = h["FLAGS"].data.astype(np.int64)
         wcs = WCS(hdr)
         wl = None
+        ww = None
         try:
             ww = WCS(hdr, fobj=h, key="W")
             ww.sip = None
             ny, nx = img.shape
             wl = float(ww.pixel_to_world_values((nx - 1) / 2.0, (ny - 1) / 2.0)[0])
         except Exception:  # noqa: BLE001 - wavelength is informational here
-            wl = None
+            wl, ww = None, None
         det = int(hdr.get("DETECTOR", 0))
         mjd = float(hdr.get("MJD-AVG", np.nan))
     sci = img - zodi
@@ -118,7 +120,7 @@ def load_exposure(path, subtract_background: bool = True) -> Exposure2D:
     overflow = ((flags >> OVERFLOW_BIT) & 1).astype(bool) | ~np.isfinite(img)
     if subtract_background and good.sum() > 20:
         sci = sci - robust_background(sci[good])
-    return Exposure2D(sci, var, good, overflow, wcs, det, mjd, wl)
+    return Exposure2D(sci, var, good, overflow, wcs, det, mjd, wl, ww)
 
 
 def robust_background(values: np.ndarray, iters: int = 5, k: float = 3.0) -> float:

@@ -1,4 +1,5 @@
-// Baked target bundles: public/benchmarks/<id>/{meta.json, frames.bin, gaia.json}. See backend/spherex_blink/bake.py.
+// Baked target bundles: public/benchmarks/<id>/{meta.json, frames.bin, gaia.json, spectra.json}. See backend/spherex_blink/bake.py.
+import type { Spectra } from "./spectra";
 
 export interface GridWcs {
   ctype: [string, string];
@@ -117,6 +118,7 @@ export interface Bundle {
   meta: Meta;
   data: Float32Array; // whole frames.bin
   gaia: { ref_year: number; stars: GaiaStar[] };
+  spectra: Spectra | null; // per-exposure photometry (M2 bundles)
   width: number;
   height: number;
 }
@@ -129,23 +131,26 @@ export async function loadIndex(fetchFn: typeof fetch = fetch): Promise<IndexEnt
   return (await r.json()).targets as IndexEntry[];
 }
 
-export function parseBundle(meta: Meta, buf: ArrayBuffer, gaia: Bundle["gaia"]): Bundle {
+export function parseBundle(meta: Meta, buf: ArrayBuffer, gaia: Bundle["gaia"], spectra: Spectra | null = null): Bundle {
   if (buf.byteLength !== meta.layout.bytes) {
     throw new Error(`frames.bin is ${buf.byteLength} bytes, meta says ${meta.layout.bytes}`);
   }
   const [, , h, w] = meta.layout.frames.shape;
-  return { meta, data: new Float32Array(buf), gaia, width: w, height: h };
+  return { meta, data: new Float32Array(buf), gaia, spectra, width: w, height: h };
 }
 
 export async function loadBundle(id: string, fetchFn: typeof fetch = fetch): Promise<Bundle> {
   const base = `${BENCH_ROOT}/${id}`;
-  const [m, b, g] = await Promise.all([
+  const [m, b, g, s] = await Promise.all([
     fetchFn(`${base}/meta.json`),
     fetchFn(`${base}/frames.bin`),
     fetchFn(`${base}/gaia.json`),
+    fetchFn(`${base}/spectra.json`).catch(() => null),
   ]);
   for (const r of [m, b, g]) if (!r.ok) throw new Error(`${r.url}: HTTP ${r.status}`);
-  return parseBundle(await m.json(), await b.arrayBuffer(), await g.json());
+  // Vite's dev server answers missing files with index.html, so check the type too.
+  const spectra = s && s.ok && (s.headers.get("content-type") ?? "").includes("json") ? ((await s.json()) as Spectra) : null;
+  return parseBundle(await m.json(), await b.arrayBuffer(), await g.json(), spectra);
 }
 
 const planeSize = (b: Bundle) => b.width * b.height;

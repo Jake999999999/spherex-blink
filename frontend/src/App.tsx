@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Pause, Play, SkipBack, SkipForward, RotateCcw, Info } from "lucide-react";
+import { Pause, Play, SkipBack, SkipForward, RotateCcw, Info, Compass, Route } from "lucide-react";
 import { GAIA_G_LIMIT, SkyCanvas, formatHover, type HoverInfo, type SkyCanvasHandle } from "./components/SkyCanvas";
+import { SpectrumPanel, type PanelTab } from "./components/SpectrumPanel";
+import { Tour, type TourStep } from "./components/Tour";
 import { framePlane, loadBundle, loadIndex, wisePlane, type Bundle, type IndexEntry } from "./lib/bundle";
 import { blinkSteps, epochsWithBand, layerOf, type Step } from "./lib/sequence";
 import { diffLimit, levelsFor, subtract } from "./lib/stretch";
 import { DEFAULT_STATE, parseState, serializeState, type ViewState } from "./lib/urlState";
 import { COLORMAPS, type ColormapName } from "./gl/colormaps";
-import { formatMjdRange, mjdToYear } from "./lib/astro";
-import { formatDec, formatRa, separationArcsec } from "./lib/wcs";
+import { formatMjdRange, mjdToYear, propagate } from "./lib/astro";
+import { formatDec, formatRa, separationArcsec, worldToPixel } from "./lib/wcs";
+import { nearestSource } from "./lib/spectra";
+import { centroid, fitMotion } from "./lib/motion";
 
 const initialUrl = parseState(window.location.search);
 const SILENT = initialUrl.silent;
@@ -19,10 +23,72 @@ declare global {
       frame: (dtMs?: number) => void;
       setEpoch: (i: number) => void;
       set: (patch: Partial<ViewState>) => void;
+      select: (id: string | null) => void;
+      tour: (i: number | null) => void;
+      motion: () => unknown;
       silent: boolean;
     };
   }
 }
+
+const TOUR_KEY = "spherex-blink.tourSeen";
+const storage = {
+  get: (k: string) => {
+    try {
+      return window.localStorage.getItem(k);
+    } catch {
+      return null;
+    }
+  },
+  set: (k: string, v: string) => {
+    try {
+      window.localStorage.setItem(k, v);
+    } catch {
+      /* private mode etc. */
+    }
+  },
+};
+
+interface TourAction {
+  target: string;
+  patch: Partial<ViewState>;
+  select: string | null;
+  tab: PanelTab;
+  playing: boolean;
+}
+
+const TOUR: (TourStep & TourAction)[] = [
+  {
+    title: "A star that moves",
+    body:
+      "Barnard's Star, 6 light-years away, crosses 10.4″ of sky a year. The blink starts with WISE's 2010 image and then shows each SPHEREx visit (2025–2026): the star jumps almost 3′. Between SPHEREx visits it moves only 1–2 pixels; step with ← → to see it. The yellow marks show where Gaia says it should be on each date.",
+    target: "barnard",
+    patch: { mode: "blink", band: 6, wise: true },
+    select: null,
+    tab: "spectrum",
+    playing: true,
+  },
+  {
+    title: "Subtract two visits",
+    body:
+      "Epsilon Indi Ba+Bb are two brown dwarfs, 0.7″ apart, so SPHEREx sees one blended source. Subtracting an earlier visit from a later one cancels the stars that stayed put. This pair moved about 0.8 pixel a year, which leaves a faint amber/cyan pair. Below is its spectrum: each dot is one SPHEREx exposure at one wavelength.",
+    target: "eps-ind-b",
+    patch: { mode: "diff", band: 3, t1: 0, t2: 99 },
+    select: "target",
+    tab: "spectrum",
+    playing: false,
+  },
+  {
+    title: "A star that pulses",
+    body:
+      "This red giant sits next to the north ecliptic pole, which SPHEREx sees every day. Gaia found that it brightens and fades over about a year. The light curve shows SPHEREx's own measurements over 18 months. Pick other detectors under the chart to see the change at other wavelengths.",
+    target: "nep-lpv",
+    patch: { mode: "blink", band: 5, wise: false },
+    select: "target",
+    tab: "lightcurve",
+    playing: true,
+  },
+];
 
 export default function App() {
   const [index, setIndex] = useState<IndexEntry[] | null>(null);
@@ -42,6 +108,12 @@ export default function App() {
   const [showAbout, setShowAbout] = useState(false);
   const canvasRef = useRef<SkyCanvasHandle>(null);
   const urlApplied = useRef(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [tab, setTab] = useState<PanelTab>("spectrum");
+  const [measure, setMeasure] = useState(false);
+  const [pickHint, setPickHint] = useState<string | null>(null);
+  const [tourIdx, setTourIdx] = useState<number | null>(() => (storage.get(TOUR_KEY) || initialUrl.target ? null : 0));
+  const pending = useRef<TourAction | null>(null);
 
   // index, then the chosen target
   useEffect(() => {
@@ -61,9 +133,26 @@ export default function App() {
         if (!live) return;
         setBundle(b);
         setStepIdx(0);
+        setMeasure(false);
+        setPickHint(null);
+        const tourAct = pending.current?.target === id ? pending.current : null;
+        pending.current = null;
+        setSelectedId(tourAct?.select ?? null);
+        if (tourAct) {
+          setTab(tourAct.tab);
+          setPlaying(tourAct.playing);
+        }
+        // decide outside the updater: StrictMode runs updaters twice
+        const fromUrl = !urlApplied.current && !tourAct;
+        urlApplied.current = true;
         setState((s) => {
-          const fromUrl = !urlApplied.current;
-          urlApplied.current = true;
+          if (tourAct) {
+            const E = b.meta.epochs.length;
+            const next = { ...s, target: id, mode: b.meta.default_mode, band: b.meta.default_band, t1: 0, t2: E - 1, ...tourAct.patch };
+            next.t1 = Math.min(next.t1, E - 1);
+            next.t2 = Math.min(next.t2, E - 1);
+            return next;
+          }
           const E = b.meta.epochs.length;
           const next: ViewState = fromUrl
             ? { ...s, target: id }
@@ -116,6 +205,8 @@ export default function App() {
   const limit = useMemo(() => (diffData ? diffLimit(diffData, diffPct) : 1), [diffData, diffPct]);
 
   const isDiff = state.mode === "diff" && !!diffData;
+  const isDiffRef = useRef(isDiff);
+  isDiffRef.current = isDiff;
   const levels = step?.kind === "wise" && wiseLevels ? wiseLevels : spxLevels;
   const draw = {
     mode: isDiff ? ("diff" as const) : ("single" as const),
@@ -171,6 +262,88 @@ export default function App() {
 
   const set = useCallback((patch: Partial<ViewState>) => setState((s) => ({ ...s, ...patch })), []);
 
+  // ---- guided tour: only steps whose target is baked
+  const tourSteps = useMemo(() => TOUR.filter((t) => index?.some((x) => x.id === t.target)), [index]);
+  const goTour = useCallback(
+    (i: number | null) => {
+      if (i === null || !tourSteps[i]) {
+        setTourIdx(null);
+        storage.set(TOUR_KEY, "1");
+        return;
+      }
+      setTourIdx(i);
+      const a = tourSteps[i];
+      if (bundle && bundle.meta.id === a.target) {
+        const E = bundle.meta.epochs.length;
+        setState((s) => {
+          const next = { ...s, ...a.patch };
+          next.t1 = Math.min(next.t1, E - 1);
+          next.t2 = Math.min(next.t2, E - 1);
+          return next;
+        });
+        setSelectedId(a.select);
+        setTab(a.tab);
+        setPlaying(a.playing);
+        setStepIdx(0);
+      } else {
+        pending.current = a;
+        set({ target: a.target });
+      }
+    },
+    [tourSteps, bundle, set],
+  );
+  // first visit: run step 1 once the index is known
+  const tourStarted = useRef(false);
+  useEffect(() => {
+    if (tourIdx === 0 && !tourStarted.current && tourSteps.length && bundle) {
+      tourStarted.current = true;
+      goTour(0);
+    }
+  }, [tourIdx, tourSteps, bundle, goTour]);
+
+  // ---- selected source (spectrum / light curve / motion)
+  const selected = bundle?.spectra?.sources.find((s) => s.id === selectedId) ?? null;
+
+  const onPick = useCallback(
+    (x: number, y: number) => {
+      if (!bundle) return;
+      if (!bundle.spectra) {
+        setPickHint("This bundle has no spectra yet (it was baked before photometry existed).");
+        return;
+      }
+      const mjd = isDiffRef.current ? bundle.meta.epochs[state.t2].mjd : (step?.mjd ?? bundle.meta.epochs[0].mjd);
+      const src = nearestSource(bundle.spectra, bundle.meta.wcs, x, y, mjd, 3);
+      if (src) {
+        setSelectedId(src.id);
+        setMeasure(false);
+        setPickHint(null);
+      } else {
+        setPickHint(`Spectra are baked for the target and the ${bundle.spectra.sources.length - 1} brightest Gaia stars in the field (G < 15). Click closer to one of those.`);
+      }
+    },
+    [bundle, step, state.t2],
+  );
+
+  const motion = useMemo(() => {
+    if (!bundle || !selected) return null;
+    const scale = bundle.meta.pixel_scale_arcsec;
+    const yrs = steps.map((s) => mjdToYear(s.mjd));
+    const pm = Math.hypot(selected.pmra, selected.pmdec) / 1000;
+    const expectedPx = steps.length > 1 ? (pm * (Math.max(...yrs) - Math.min(...yrs))) / scale : 0;
+    if (!measure || expectedPx < 1) return { expectedPx, pts: [], fit: null };
+    const pts = steps
+      .map((s) => {
+        const year = mjdToYear(s.mjd);
+        const plane = s.kind === "wise" ? wisePlane(bundle, s.layer - bundle.meta.epochs.length * 6) : framePlane(bundle, s.epoch, state.band);
+        const [ra, dec] = propagate(selected.ra, selected.dec, selected.pmra, selected.pmdec, selected.ref_year, year);
+        const [sx, sy] = worldToPixel(bundle.meta.wcs, ra, dec);
+        const c = centroid(plane, bundle.width, bundle.height, sx, sy, 3);
+        return c ? { year, x: c.x, y: c.y, label: s.kind === "wise" ? "2010" : `V${s.epoch + 1}` } : null;
+      })
+      .filter((p): p is { year: number; x: number; y: number; label: string } => !!p);
+    return { expectedPx, pts, fit: fitMotion(pts, scale) };
+  }, [bundle, selected, steps, measure, state.band]);
+
   // test hooks (a hidden pane stops requestAnimationFrame)
   useEffect(() => {
     window.__spherex = {
@@ -181,6 +354,15 @@ export default function App() {
       },
       setEpoch: (i: number) => setStepIdx(((i % Math.max(1, steps.length)) + steps.length) % Math.max(1, steps.length)),
       set,
+      select: (id) => {
+        setSelectedId(id);
+        setMeasure(false);
+      },
+      tour: (i) => goTour(i),
+      motion: () => {
+        setMeasure(true);
+        return motion;
+      },
       silent: SILENT,
     };
   });
@@ -215,6 +397,10 @@ export default function App() {
         case "R":
           canvasRef.current?.resetView();
           break;
+        case "Escape":
+          setSelectedId(null);
+          setPickHint(null);
+          break;
         default:
           return;
       }
@@ -230,7 +416,7 @@ export default function App() {
   const t = m.target;
   const diffYears = isDiff ? [m.epochs[state.t1].mjd, m.epochs[state.t2].mjd] : null;
   const shownYear = isDiff ? null : step ? mjdToYear(step.mjd) : null;
-  const motion = Math.hypot(t.pmra, t.pmdec) / 1000; // arcsec/yr
+  const targetPm = Math.hypot(t.pmra, t.pmdec) / 1000; // arcsec/yr
   const det = m.detectors[state.band - 1];
 
   return (
@@ -240,6 +426,19 @@ export default function App() {
         <header>
           <h1 className="text-base font-semibold tracking-wide text-sky-300">SPHEREx Blink</h1>
           <p className="text-xs text-slate-400">Real near-infrared sky survey data, visit by visit.</p>
+          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+            {tourSteps.length > 0 && (
+              <button onClick={() => goTour(0)} className="inline-flex items-center gap-1 rounded border border-sky-400/30 px-2 py-0.5 text-sky-200 hover:bg-sky-400/10">
+                <Route size={12} /> Guided tour
+              </button>
+            )}
+            {bundle.spectra && !selected && (
+              <button onClick={() => setSelectedId("target")} className="rounded border border-sky-400/30 px-2 py-0.5 text-sky-200 hover:bg-sky-400/10">
+                Target spectrum
+              </button>
+            )}
+          </div>
+          <p className="mt-1 text-[11px] text-slate-500">Click a star for its spectrum and light curve.</p>
         </header>
 
         <Field label="Target">
@@ -358,7 +557,7 @@ export default function App() {
             <dd>2026.5</dd>
             <dt className="text-slate-500">motion</dt>
             <dd>
-              {motion.toFixed(2)}″/yr = {(motion / m.pixel_scale_arcsec).toFixed(2)} px/yr
+              {targetPm.toFixed(2)}″/yr = {(targetPm / m.pixel_scale_arcsec).toFixed(2)} px/yr
             </dd>
             <dt className="text-slate-500">2010→26</dt>
             <dd>{separationArcsec(...t.pos_2010, ...t.pos_now).toFixed(0)}″ moved</dd>
@@ -386,7 +585,8 @@ export default function App() {
       </aside>
 
       {/* sky */}
-      <main className="relative order-1 min-h-[55vh] flex-1 lg:order-2">
+      <main className="order-1 flex min-h-[70vh] flex-1 flex-col lg:order-2 lg:min-h-0">
+        <div className="relative min-h-[45vh] flex-1">
         <SkyCanvas
           bundle={bundle}
           draw={draw}
@@ -396,7 +596,16 @@ export default function App() {
           handleRef={canvasRef}
           onHover={setHover}
           valueAt={valueAt}
+          onPick={onPick}
+          selected={selected}
+          marks={motion?.pts ?? []}
         />
+        {tourIdx !== null && <Tour steps={tourSteps} index={tourIdx} onIndex={goTour} onClose={() => goTour(null)} />}
+        {pickHint && (
+          <button onClick={() => setPickHint(null)} className="panel absolute left-1/2 top-12 max-w-md -translate-x-1/2 rounded px-3 py-2 text-xs text-slate-300">
+            {pickHint}
+          </button>
+        )}
 
         <div className="pointer-events-none absolute left-3 top-3 flex flex-col gap-1">
           <span className="panel rounded px-2 py-1 mono text-xs text-sky-200">
@@ -457,7 +666,69 @@ export default function App() {
             </IconBtn>
           </div>
         )}
+        </div>
+
+        {selected && bundle.spectra && (
+          <div className="h-[46%] min-h-[260px] shrink-0 border-t border-sky-400/20">
+            <SpectrumPanel
+              spectra={bundle.spectra}
+              source={selected}
+              epochs={m.epochs}
+              detectors={m.detectors}
+              band={state.band}
+              tab={tab}
+              onTab={setTab}
+              onClose={() => setSelectedId(null)}
+            >
+              <MotionBar
+                expectedPx={motion?.expectedPx ?? 0}
+                measuring={measure}
+                onMeasure={() => setMeasure((x) => !x)}
+                fit={motion?.fit ?? null}
+                n={motion?.pts.length ?? 0}
+                gaia={{ east: selected.pmra / 1000, north: selected.pmdec / 1000 }}
+                frames={steps.length}
+              />
+            </SpectrumPanel>
+          </div>
+        )}
       </main>
+    </div>
+  );
+}
+
+function MotionBar(p: {
+  expectedPx: number;
+  measuring: boolean;
+  onMeasure: () => void;
+  fit: ReturnType<typeof fitMotion>;
+  n: number;
+  gaia: { east: number; north: number };
+  frames: number;
+}) {
+  const gTot = Math.hypot(p.gaia.east, p.gaia.north);
+  if (p.expectedPx < 1) {
+    return (
+      <p className="mb-1 text-[11px] text-slate-500">
+        Motion: Gaia says {gTot.toFixed(3)}″/yr, under one pixel across these {p.frames} frames, so it can't be measured here.
+      </p>
+    );
+  }
+  return (
+    <div className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+      <button onClick={p.onMeasure} className="inline-flex items-center gap-1 rounded border border-fuchsia-400/40 px-2 py-0.5 text-fuchsia-200 hover:bg-fuchsia-400/10">
+        <Compass size={12} /> {p.measuring ? "Hide motion" : "Measure motion"}
+      </button>
+      {p.measuring && p.fit && (
+        <span className="mono text-slate-200">
+          measured {p.fit.total.toFixed(2)}{p.fit.sigma !== null ? ` ± ${p.fit.sigma.toFixed(2)}` : ""}″/yr toward PA {p.fit.pa.toFixed(0)}° from {p.n} frames over{" "}
+          {p.fit.baselineYears.toFixed(1)} yr · Gaia {gTot.toFixed(2)}″/yr ({(((p.fit.total - gTot) / gTot) * 100).toFixed(0)}%)
+        </span>
+      )}
+      {p.measuring && !p.fit && <span className="text-amber-300">Couldn't find the star in enough frames.</span>}
+      {p.measuring && (
+        <span className="text-slate-500">Centroids (pink ×) of this detector's frames{p.frames > 1 ? "" : ""}; the search starts at the Gaia position for each date.</span>
+      )}
     </div>
   );
 }
