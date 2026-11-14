@@ -1,0 +1,9 @@
+{
+ "targets": [
+  {
+   "id": "barnard",
+   "name": "Barnard's Star",
+   "status": "ready"
+  }
+ ]
+}
