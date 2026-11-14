@@ -50,6 +50,7 @@ def get_with_retry(
     tries: int = 5,
     base_delay: float = 3.0,
     sleep: Callable[[float], None] = time.sleep,
+    max_delay: float = 60.0,
 ) -> bytes:
     """GET with exponential backoff on 5xx/429 and network errors."""
     last: str = ""
@@ -64,20 +65,31 @@ def get_with_retry(
         except (httpx.TimeoutException, httpx.TransportError) as e:
             last = f"{type(e).__name__}: {e}"
         if attempt < tries - 1:
-            sleep(base_delay * (2**attempt) * (0.75 + 0.5 * random.random()))
+            sleep(min(max_delay, base_delay * (2**attempt)) * (0.75 + 0.5 * random.random()))
     raise FetchError(f"{url} failed after {tries} tries ({last})")
 
 
 # ---------------------------------------------------------------- SIA
 
 
+# Metadata services (SIA, TAP) have outages of a few minutes: retry longer than for cutouts.
+META_RETRY = {"tries": 8, "base_delay": 5.0}
+
+
 def sia_query(client: httpx.Client, collection: str, ra: float, dec: float, radius_deg: float) -> list[dict]:
+    """SIA search, cached on disk (delete backend/cache/sia/ to pick up newly released data)."""
     params = {
         "COLLECTION": collection,
         "POS": f"circle {ra} {dec} {radius_deg}",
         "RESPONSEFORMAT": "CSV",
     }
-    raw = get_with_retry(client, SIA_URL, params=params)
+    key = cache_path(f"{SIA_URL}?{sorted(params.items())}", kind="sia").with_suffix(".csv")
+    if key.exists():
+        raw = key.read_bytes()
+    else:
+        raw = get_with_retry(client, SIA_URL, params=params, **META_RETRY)
+        key.parent.mkdir(parents=True, exist_ok=True)
+        key.write_bytes(raw)
     text = raw.decode("utf-8", errors="replace")
     return list(csv.DictReader(io.StringIO(text)))
 

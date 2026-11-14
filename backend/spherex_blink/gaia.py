@@ -9,7 +9,7 @@ import math
 
 import httpx
 
-from .irsa import CACHE_ROOT, get_with_retry
+from .irsa import CACHE_ROOT, META_RETRY, get_with_retry
 
 GAIA_TAP = "https://gea.esac.esa.int/tap-server/tap/sync"
 IRSA_TAP = "https://irsa.ipac.caltech.edu/TAP/sync"
@@ -46,7 +46,7 @@ def propagate(ra: float, dec: float, pmra: float, pmdec: float, from_year: float
 
 def _tap_csv(client: httpx.Client, url: str, adql: str) -> list[dict]:
     params = {"REQUEST": "doQuery", "LANG": "ADQL", "FORMAT": "csv", "QUERY": adql}
-    raw = get_with_retry(client, url, params=params)
+    raw = get_with_retry(client, url, params=params, **META_RETRY)
     return list(csv.DictReader(io.StringIO(raw.decode("utf-8", errors="replace"))))
 
 

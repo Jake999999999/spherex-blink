@@ -4,6 +4,16 @@
    "id": "barnard",
    "name": "Barnard's Star",
    "status": "ready"
+  },
+  {
+   "id": "nep-lpv",
+   "name": "Pulsating red giant (Gaia DR3 2160548942811758720)",
+   "status": "ready"
+  },
+  {
+   "id": "rw-aur",
+   "name": "RW Aurigae",
+   "status": "conditional"
   }
  ]
 }
