@@ -17,7 +17,15 @@ def main(argv: list[str] | None = None) -> int:
     b = sub.add_parser("bake", help="fetch real IRSA data and write frontend/public/benchmarks/<id>/")
     b.add_argument("targets", nargs="+", help=f"target ids or 'all' ({', '.join(TARGETS)})")
     sub.add_parser("targets", help="list demo targets")
+    sub.add_parser("index", help="rewrite frontend/public/benchmarks/index.json from the baked bundles")
     args = ap.parse_args(argv)
+
+    if args.cmd == "index":
+        from .bake import write_index
+
+        for e in write_index():
+            print(e["id"])
+        return 0
 
     if args.cmd == "targets":
         for t in TARGETS.values():

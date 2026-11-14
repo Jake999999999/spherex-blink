@@ -27,6 +27,22 @@ NOW_YEAR = 2026.5
 MAX_BUNDLE_BYTES = 4 * 1024 * 1024
 
 
+TARGET_ORDER = ["barnard", "eps-ind-b", "nep-lpv", "rw-aur", "wise-0855"]
+
+
+def write_index(out_root: Path = OUT_ROOT) -> list[dict]:
+    """index.json listing every baked bundle, in demo order."""
+    found = []
+    for meta_path in out_root.glob("*/meta.json"):
+        m = json.loads(meta_path.read_text())
+        found.append({"id": m["id"], "name": m["name"], "status": m["status"]})
+    order = {k: i for i, k in enumerate(TARGET_ORDER)}
+    found.sort(key=lambda e: order.get(e["id"], 99))
+    out_root.mkdir(parents=True, exist_ok=True)
+    (out_root / "index.json").write_text(json.dumps({"targets": found}, indent=1))
+    return found
+
+
 def resolve_motion(client: httpx.Client, t: Target) -> dict:
     """Reference position + proper motion for the target, with its source."""
     if t.gaia_id:
@@ -200,6 +216,7 @@ def bake(target_id: str, client: httpx.Client | None = None, out_root: Path = OU
         print(f"  wrote {out} ({size / 1e6:.2f} MB, {E} visits, {len(wise_frames)} WISE frames, {len(field)} Gaia stars)", flush=True)
         if size > MAX_BUNDLE_BYTES:
             print(f"  ! bundle is over the {MAX_BUNDLE_BYTES / 1e6:.0f} MB limit", flush=True)
+        write_index(out_root)
         return meta
     finally:
         if own:
