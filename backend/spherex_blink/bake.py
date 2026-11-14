@@ -43,6 +43,29 @@ def write_index(out_root: Path = OUT_ROOT) -> list[dict]:
     return found
 
 
+TEXT_FIELDS = ("name", "blurb", "notes", "status", "default_mode", "default_band")
+
+
+def retext(target_id: str, out_root: Path = OUT_ROOT) -> bool:
+    """Refresh the descriptive fields of a baked bundle from targets.py (no data changes, no network)."""
+    path = out_root / target_id / "meta.json"
+    if not path.exists():
+        return False
+    meta = json.loads(path.read_text())
+    t = TARGETS[target_id]
+    for f in TEXT_FIELDS:
+        meta[f] = getattr(t, f)
+    path.write_text(json.dumps(meta, separators=(",", ":")))
+    sp = out_root / target_id / "spectra.json"
+    if sp.exists():
+        s = json.loads(sp.read_text())
+        if s.get("sources") and s["sources"][0]["id"] == "target":
+            s["sources"][0]["name"] = t.name
+            sp.write_text(json.dumps(s, separators=(",", ":")))
+    write_index(out_root)
+    return True
+
+
 def resolve_motion(client: httpx.Client, t: Target) -> dict:
     """Reference position + proper motion for the target, with its source."""
     if t.gaia_id:
@@ -119,7 +142,7 @@ def gaia_sep_arcsec(ra1: float, dec1: float, ra2: float, dec2: float) -> float:
 def measure_spectra(loaded: list, epoch_of: dict[int, int], sources: list[dict]) -> dict:
     """One point per (exposure, source): exposure-level columns are shared, per-source arrays align with them."""
     cols = {"mjd": [], "det": [], "epoch": []}
-    per = [{**s, "flux": [], "err": [], "flag": [], "wl": [], "bw": []} for s in sources]
+    per = [{**s, "flux": [], "err": [], "flag": [], "wl": [], "bw": [], "wing_flux": [], "wing_err": [], "wing_flag": []} for s in sources]
     for i, (e, ex, _img, _var) in enumerate(loaded):
         cols["mjd"].append(round(e.mjd, 5))
         cols["det"].append(e.detector)
@@ -130,16 +153,21 @@ def measure_spectra(loaded: list, epoch_of: dict[int, int], sources: list[dict])
             x, y = ex.wcs.world_to_pixel_values(ra, dec)
             x, y = float(x), float(y)
             p = photometry.aperture(ex.image, ex.variance, ex.good, ex.overflow, x, y)
+            wp = photometry.wing(ex.image, ex.variance, ex.good, ex.overflow, x, y)
             ok = math.isfinite(p.flux)
+            wok = math.isfinite(wp.flux)
             # The filter wavelength changes across the detector, so each source gets its own.
-            wl = photometry.wavelength_at(ex.wave_wcs, x, y) if ok else None
-            if ok and wl is None:
-                ok = False
+            wl = photometry.wavelength_at(ex.wave_wcs, x, y) if (ok or wok) else None
+            if wl is None:
+                ok = wok = False
+            s["wing_flux"].append(round(wp.flux, 4) if wok else None)
+            s["wing_err"].append(round(wp.err, 4) if wok else None)
+            s["wing_flag"].append(wp.flag)
             s["flux"].append(round(p.flux, 4) if ok else None)
             s["err"].append(round(p.err, 4) if ok else None)
             s["flag"].append(p.flag)
-            s["wl"].append(round(wl[0], 4) if ok else None)
-            s["bw"].append(round(wl[1], 4) if ok and math.isfinite(wl[1]) else None)
+            s["wl"].append(round(wl[0], 4) if wl else None)
+            s["bw"].append(round(wl[1], 4) if wl and math.isfinite(wl[1]) else None)
     return {
         "units": "mJy",
         "aperture_arcsec": round(photometry.R_AP * frames.PIXEL_SCALE_ARCSEC, 1),
@@ -147,6 +175,9 @@ def measure_spectra(loaded: list, epoch_of: dict[int, int], sources: list[dict])
         "note": "Aperture sums with a local sky annulus, no aperture correction: compare points with each other, "
         "not with catalogue magnitudes. Wavelength is the filter centre at the source's pixel in that exposure.",
         "flags": {"0": "ok", "1": "masked pixel in aperture", "2": "saturated pixel in aperture"},
+        "wing_arcsec": [photometry.WING_IN * frames.PIXEL_SCALE_ARCSEC, photometry.WING_OUT * frames.PIXEL_SCALE_ARCSEC],
+        "wing_note": "Flux in a ring around the core, for stars whose core saturates. Tracks brightness over time; "
+        "the ring holds a different share of the light at different wavelengths, so don't read spectral shape from it.",
         "exposures": cols,
         "sources": per,
     }

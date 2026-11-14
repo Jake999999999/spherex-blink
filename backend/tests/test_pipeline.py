@@ -183,3 +183,16 @@ def test_aperture_error_grows_with_variance():
     lo = photometry.aperture(img, var, good, ovf, 20.3, 19.6).err
     hi = photometry.aperture(img, var * 100, good, ovf, 20.3, 19.6).err
     assert hi > 5 * lo
+
+
+def test_wing_flux_is_proportional_and_ignores_a_saturated_core():
+    img, var, good, ovf = _star_field(flux_total=100.0, sigma=1.2, x0=20.0, y0=20.0)
+    ref = photometry.wing(img, var, good, ovf, 20.0, 20.0)
+    img2, var2, good2, ovf2 = _star_field(flux_total=200.0, sigma=1.2, x0=20.0, y0=20.0)
+    for yx in [(20, 20), (20, 21), (21, 20)]:  # saturated core
+        good2[yx] = False
+        ovf2[yx] = True
+        img2[yx] = np.nan
+    p = photometry.wing(img2, var2, good2, ovf2, 20.0, 20.0)
+    assert p.flag == photometry.FLAG_OK
+    assert p.flux / ref.flux == pytest.approx(2.0, rel=0.01)

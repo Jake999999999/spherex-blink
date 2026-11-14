@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, X } from "lucide-react";
 import type { Epoch } from "../lib/bundle";
-import { FLAG_OK, REFERENCE_BANDS, points, toCsv, type Point, type Spectra, type SpectraSource } from "../lib/spectra";
+import { FLAG_OK, REFERENCE_BANDS, points, preferRing, toCsv, type Measure, type Point, type Spectra, type SpectraSource } from "../lib/spectra";
 import { formatMjdRange, mjdToDate, mjdToYear } from "../lib/astro";
 import { formatNumber, logTicks, niceTicks, robustRange } from "../lib/ticks";
 
@@ -35,6 +35,10 @@ export function SpectrumPanel({ spectra, source, epochs, detectors, band, tab, o
   const [lcBand, setLcBand] = useState(band);
   useEffect(() => setLcBand(band), [band]);
   const [logY, setLogY] = useState(false);
+  const hasRing = !!source.wing_flux;
+  const [lcMeasure, setLcMeasure] = useState<Measure>(() => (preferRing(spectra, source) ? "ring" : "core"));
+  useEffect(() => setLcMeasure(preferRing(spectra, source) ? "ring" : "core"), [spectra, source]);
+  const lcPts = useMemo(() => points(spectra, source, lcMeasure), [spectra, source, lcMeasure]);
 
   const download = () => {
     const blob = new Blob([toCsv(source, pts)], { type: "text/csv" });
@@ -75,7 +79,7 @@ export function SpectrumPanel({ spectra, source, epochs, detectors, band, tab, o
         </button>
       </header>
       {children}
-      {pts.length > 0 && nGood < pts.length * 0.2 && (
+      {pts.length > 0 && nGood < pts.length * 0.2 && !(tab === "lightcurve" && lcMeasure === "ring") && (
         <p className="mb-1 text-[11px] text-amber-300">
           Most measurements touch saturated or masked pixels (hollow dots): this star is too bright for SPHEREx at most wavelengths, so the
           shape and level are not reliable. Field stars and fainter targets give clean spectra.
@@ -87,7 +91,7 @@ export function SpectrumPanel({ spectra, source, epochs, detectors, band, tab, o
         ) : tab === "spectrum" ? (
           <SpectrumChart pts={pts} epochs={epochs} detectors={detectors} logY={logY} />
         ) : tab === "lightcurve" ? (
-          <LightCurveChart pts={pts.filter((p) => p.det === lcBand)} det={detectors[lcBand - 1]} />
+          <LightCurveChart pts={lcPts.filter((p) => p.det === lcBand)} det={detectors[lcBand - 1]} />
         ) : (
           <PointTable pts={pts} />
         )}
@@ -97,6 +101,20 @@ export function SpectrumPanel({ spectra, source, epochs, detectors, band, tab, o
           <label className="flex items-center gap-1">
             <input type="checkbox" checked={logY} onChange={(e) => setLogY(e.target.checked)} /> log flux
           </label>
+        )}
+        {tab === "lightcurve" && hasRing && (
+          <span className="flex items-center gap-1" title={spectra.wing_note}>
+            Measure
+            {(["core", "ring"] as const).map((k) => (
+              <button
+                key={k}
+                onClick={() => setLcMeasure(k)}
+                className={`rounded border px-1.5 ${lcMeasure === k ? "border-sky-400 text-sky-200" : "border-sky-400/20 text-slate-400"}`}
+              >
+                {k === "core" ? "Core" : "Ring (saturated stars)"}
+              </button>
+            ))}
+          </span>
         )}
         {tab === "lightcurve" && (
           <span className="flex items-center gap-1">
@@ -113,7 +131,9 @@ export function SpectrumPanel({ spectra, source, epochs, detectors, band, tab, o
           </span>
         )}
         <span>
-          {spectra.aperture_arcsec}″ aperture, local sky subtracted, no aperture correction: compare points with each other, not with catalogue magnitudes.
+          {tab === "lightcurve" && lcMeasure === "ring" && spectra.wing_arcsec
+            ? `Ring ${spectra.wing_arcsec[0].toFixed(0)}–${spectra.wing_arcsec[1].toFixed(0)}″ around the saturated core: tracks brightness over time; the ring holds a different share of the light at each wavelength, so compare dates within one detector only.`
+            : `${spectra.aperture_arcsec}″ aperture, local sky subtracted, no aperture correction: compare points with each other, not with catalogue magnitudes.`}
         </span>
       </footer>
     </section>

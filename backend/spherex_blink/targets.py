@@ -36,7 +36,7 @@ TARGETS: dict[str, Target] = {
             default_mode="blink",
             default_band=6,
             gaia_id="4472832130942575872",
-            notes=["Core saturated near 2 µm (detectors 2–4); detectors 5–6 are clean."],
+            notes=["Too bright for SPHEREx: its centre saturates in nearly every exposure, so its spectrum is unreliable. Positions still work."],
         ),
         Target(
             id="eps-ind-b",
@@ -52,13 +52,13 @@ TARGETS: dict[str, Target] = {
             id="nep-lpv",
             name="Pulsating red giant (Gaia DR3 2160548942811758720)",
             blurb="A long-period variable (Gaia: ~372-day period) next to the north ecliptic pole, where "
-            "SPHEREx looks every day. Its brightness changes from visit to visit.",
+            "SPHEREx looks every day. Frames here are two-month bins of 480 exposures sampled from 17,000.",
             fov_arcmin=5.0,
             default_mode="blink",
-            default_band=5,
+            default_band=6,
             gaia_id="2160548942811758720",
             max_exposures=480,
-            notes=["One core pixel saturates near 2 µm."],
+            notes=["Its centre saturates in every detector; the light curve uses a ring around the centre instead."],
         ),
         Target(
             id="rw-aur",
@@ -70,7 +70,7 @@ TARGETS: dict[str, Target] = {
             default_band=4,
             gaia_id="156430822114424576",
             status="conditional",
-            notes=["A and B (1.5″ apart) are blended."],
+            notes=["A and B (1.5″ apart) are blended.", "Saturates on detectors 2–6; only detector 1 (0.75–1.1 µm) measures cleanly."],
         ),
         Target(
             id="wise-0855",

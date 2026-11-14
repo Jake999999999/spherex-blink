@@ -81,9 +81,9 @@ const TOUR: (TourStep & TourAction)[] = [
   {
     title: "A star that pulses",
     body:
-      "This red giant sits next to the north ecliptic pole, which SPHEREx sees every day. Gaia found that it brightens and fades over about a year. The light curve shows SPHEREx's own measurements over 18 months. Pick other detectors under the chart to see the change at other wavelengths.",
+      "This red giant sits next to the north ecliptic pole, which SPHEREx sees every day; Gaia found it pulses over about a year. It's so bright in the infrared that its centre saturates, so the light curve measures a ring of light around the centre instead. Over 18 months it fades to about half and brightens again. Each dot is one exposure; colour is the wavelength inside the detector.",
     target: "nep-lpv",
-    patch: { mode: "blink", band: 5, wise: false },
+    patch: { mode: "blink", band: 6, wise: false },
     select: "target",
     tab: "lightcurve",
     playing: true,

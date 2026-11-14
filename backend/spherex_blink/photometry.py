@@ -73,6 +73,37 @@ def aperture(
     return Phot(s * MJY_SR_TO_MJY_PER_PIXEL, math.sqrt(max(var, 0.0)) * MJY_SR_TO_MJY_PER_PIXEL, flag, sky)
 
 
+# Wing ring for stars with a saturated core (the core is 1-4 px; this ring is clean in nearly every exposure).
+WING_IN = 1.5
+WING_OUT = 4.0
+WING_SKY_IN = 5.0
+WING_SKY_OUT = 8.0
+
+
+def wing(image, variance, good, overflow, x: float, y: float) -> Phot:
+    """Flux in the ring WING_IN < r <= WING_OUT (local sky removed). Tracks brightness over time for
+    saturated stars; the PSF fraction in the ring changes with wavelength, so not for spectral shape."""
+    ny, nx = image.shape
+    if not (WING_SKY_OUT <= x <= nx - 1 - WING_SKY_OUT and WING_SKY_OUT <= y <= ny - 1 - WING_SKY_OUT):
+        return NAN_PHOT
+    yy, xx = np.mgrid[0:ny, 0:nx]
+    r2 = (xx - x) ** 2 + (yy - y) ** 2
+    ring = (r2 > WING_IN**2) & (r2 <= WING_OUT**2)
+    sky_m = (r2 >= WING_SKY_IN**2) & (r2 <= WING_SKY_OUT**2) & good
+    if sky_m.sum() < 8:
+        return NAN_PHOT
+    sky, sky_sd = _clipped(image[sky_m])
+    rg = ring & good
+    n = int(ring.sum())
+    if rg.sum() < 0.85 * n:  # don't compare rings with chunks missing
+        return Phot(math.nan, math.nan, FLAG_SATURATED if (ring & overflow).any() else FLAG_BAD_PIXEL, sky)
+    flag = FLAG_SATURATED if (ring & overflow).any() else (FLAG_BAD_PIXEL if (ring & ~good).any() else FLAG_OK)
+    # scale up for the few missing pixels so rings stay comparable
+    s = float((image[rg] - sky).sum()) * n / rg.sum()
+    var = float(variance[rg].sum()) + rg.sum() * (1.2533 * sky_sd) ** 2 / max(1, int(sky_m.sum()))
+    return Phot(s * MJY_SR_TO_MJY_PER_PIXEL, math.sqrt(max(var, 0.0)) * MJY_SR_TO_MJY_PER_PIXEL, flag, sky)
+
+
 def _clipped(v: np.ndarray, k: float = 3.0, iters: int = 4) -> tuple[float, float]:
     v = v[np.isfinite(v)]
     med = float(np.median(v))

@@ -18,7 +18,16 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("targets", nargs="+", help=f"target ids or 'all' ({', '.join(TARGETS)})")
     sub.add_parser("targets", help="list demo targets")
     sub.add_parser("index", help="rewrite frontend/public/benchmarks/index.json from the baked bundles")
+    sub.add_parser("retext", help="refresh names/notes in baked bundles from targets.py (no network)")
     args = ap.parse_args(argv)
+
+    if args.cmd == "retext":
+        from .bake import retext
+
+        for i in TARGETS:
+            if retext(i):
+                print(f"updated {i}")
+        return 0
 
     if args.cmd == "index":
         from .bake import write_index

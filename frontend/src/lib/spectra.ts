@@ -18,7 +18,13 @@ export interface SpectraSource {
   flag: number[];
   wl: (number | null)[];
   bw: (number | null)[];
+  // ring around the core, for saturated stars (bundles baked after 2026-11-14 midday)
+  wing_flux?: (number | null)[];
+  wing_err?: (number | null)[];
+  wing_flag?: number[];
 }
+
+export type Measure = "core" | "ring";
 
 export interface Spectra {
   units: "mJy";
@@ -26,6 +32,8 @@ export interface Spectra {
   sky_annulus_arcsec: [number, number];
   note: string;
   flags: Record<string, string>;
+  wing_arcsec?: [number, number];
+  wing_note?: string;
   exposures: { mjd: number[]; det: number[]; epoch: number[] };
   sources: SpectraSource[];
 }
@@ -46,16 +54,31 @@ export interface Point {
   epoch: number;
 }
 
-export function points(s: Spectra, src: SpectraSource): Point[] {
+export function points(s: Spectra, src: SpectraSource, measure: Measure = "core"): Point[] {
   const out: Point[] = [];
   const e = s.exposures;
+  const ring = measure === "ring" && !!src.wing_flux;
   for (let i = 0; i < e.mjd.length; i++) {
-    const f = src.flux[i];
+    const f = ring ? src.wing_flux![i] : src.flux[i];
     const w = src.wl[i];
-    if (f === null || w === null) continue;
-    out.push({ i, mjd: e.mjd[i], wl: w, bw: src.bw[i], flux: f, err: src.err[i] ?? 0, flag: src.flag[i], det: e.det[i], epoch: e.epoch[i] });
+    if (f === null || f === undefined || w === null) continue;
+    let flag = ring ? (src.wing_flag?.[i] ?? 0) : src.flag[i];
+    // The ring tolerates a few masked (e.g. nonlinear) pixels and scales for them; only saturation in the ring counts against it.
+    if (ring && flag === FLAG_BAD_PIXEL) flag = FLAG_OK;
+    const err = ring ? (src.wing_err?.[i] ?? 0) : (src.err[i] ?? 0);
+    out.push({ i, mjd: e.mjd[i], wl: w, bw: src.bw[i], flux: f, err, flag, det: e.det[i], epoch: e.epoch[i] });
   }
   return out;
+}
+
+/** Ring photometry is the better light-curve measure when most core measurements are saturated. */
+export function preferRing(s: Spectra, src: SpectraSource): boolean {
+  if (!src.wing_flux) return false;
+  const core = points(s, src, "core");
+  const sat = core.filter((p) => p.flag === FLAG_SATURATED).length;
+  const ringOk = points(s, src, "ring").filter((p) => p.flag === FLAG_OK).length;
+  const coreOk = core.filter((p) => p.flag === FLAG_OK).length;
+  return sat > core.length * 0.5 && ringOk > coreOk;
 }
 
 /** Baked source nearest to a data-pixel position at a given date, within maxPx. */
