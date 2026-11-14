@@ -6,6 +6,9 @@ import { formatDec, formatRa, pixelToWorld, worldToPixel } from "../lib/wcs";
 import type { Step } from "../lib/sequence";
 import { allPlanes } from "../lib/sequence";
 
+/** Gaia markers down to this G magnitude (fainter ones crowd the view and are mostly below SPHEREx's single-visit depth). */
+export const GAIA_G_LIMIT = 16;
+
 export interface View {
   zoom: number; // CSS px per data px
   cx: number;
@@ -45,6 +48,7 @@ export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, o
   const glRef = useRef<HTMLCanvasElement>(null);
   const ovRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<Renderer | null>(null);
+  const uploaded = useRef<Bundle | null>(null);
   const [error, setError] = useState<string | null>(null);
   const viewRef = useRef<View>({ zoom: 4, cx: 0, cy: 0 });
   const [, setTick] = useState(0);
@@ -64,6 +68,7 @@ export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, o
       const r = rendererRef.current ?? new Renderer(c);
       rendererRef.current = r;
       r.upload(allPlanes(bundle), bundle.width, bundle.height);
+      uploaded.current = bundle;
       setError(null);
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
@@ -72,10 +77,26 @@ export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, o
     bump();
   }, [bundle, fit]);
 
-  useEffect(() => () => rendererRef.current?.dispose(), []);
+  useEffect(
+    () => () => {
+      rendererRef.current?.dispose();
+      rendererRef.current = null; // StrictMode remounts: the next effect builds a fresh one
+    },
+    [],
+  );
 
   const paint = useCallback(() => {
-    const r = rendererRef.current;
+    let r = rendererRef.current;
+    if (!r && glRef.current) {
+      // remounted after a dispose (StrictMode / HMR): rebuild and re-upload
+      try {
+        r = rendererRef.current = new Renderer(glRef.current);
+        r.upload(allPlanes(bundle), bundle.width, bundle.height);
+        uploaded.current = bundle;
+      } catch {
+        return;
+      }
+    }
     const wrap = wrapRef.current;
     const ov = ovRef.current;
     if (!r || !wrap || !ov) return;
@@ -204,11 +225,12 @@ function drawOverlay(
 
   if (showGaia && years.length) {
     const yr = years[years.length - 1];
-    ctx.strokeStyle = "rgba(74,222,128,0.75)";
+    ctx.strokeStyle = "rgba(74,222,128,0.6)";
     ctx.lineWidth = 1;
-    const r = Math.max(4, 1.4 * v.zoom);
     for (const s of b.gaia.stars) {
-      if (s.g !== null && s.g > 18) continue;
+      if (s.g === null || s.g > GAIA_G_LIMIT) continue;
+      // brighter stars get bigger circles
+      const r = Math.max(3, (0.6 + (GAIA_G_LIMIT - s.g) * 0.12) * v.zoom);
       const [ra, dec] = propagate(s.ra, s.dec, s.pmra, s.pmdec, b.gaia.ref_year, yr);
       const [sx, sy] = sky(ra, dec);
       if (sx < -20 || sy < -20 || sx > W + 20 || sy > H + 20) continue;

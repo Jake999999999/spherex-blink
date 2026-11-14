@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pause, Play, SkipBack, SkipForward, RotateCcw, Info } from "lucide-react";
-import { SkyCanvas, formatHover, type HoverInfo, type SkyCanvasHandle } from "./components/SkyCanvas";
+import { GAIA_G_LIMIT, SkyCanvas, formatHover, type HoverInfo, type SkyCanvasHandle } from "./components/SkyCanvas";
 import { framePlane, loadBundle, loadIndex, wisePlane, type Bundle, type IndexEntry } from "./lib/bundle";
 import { blinkSteps, epochsWithBand, layerOf, type Step } from "./lib/sequence";
 import { diffLimit, levelsFor, subtract } from "./lib/stretch";
@@ -343,7 +343,7 @@ export default function App() {
           )}
           <div className="mt-2 flex flex-col gap-1 text-xs">
             <Check label="Include 2010 WISE frame" checked={state.wise} onChange={(v) => set({ wise: v })} disabled={state.mode === "diff"} />
-            <Check label="Gaia DR3 stars (G)" checked={showGaia} onChange={setShowGaia} />
+            <Check label={`Gaia DR3 stars, G < ${GAIA_G_LIMIT} (G)`} checked={showGaia} onChange={setShowGaia} />
             <Check label="Pixel grid (zoom in)" checked={pixelGrid} onChange={setPixelGrid} />
           </div>
         </Field>
@@ -410,9 +410,15 @@ export default function App() {
             <span className="panel rounded px-2 py-1 text-xs text-amber-200">Different telescope (WISE, 2010): compare positions, not brightness.</span>
           )}
         </div>
-        <span className="panel absolute right-3 top-3 rounded px-2 py-1 text-xs font-medium text-emerald-300" title={m.provenance.collections.join(", ")}>
-          {m.provenance.label}
-        </span>
+        {!isDiff && step?.kind === "wise" ? (
+          <span className="panel absolute right-3 top-3 rounded px-2 py-1 text-xs font-medium text-amber-300" title={m.provenance.wise}>
+            AllWISE 2010 (IRSA)
+          </span>
+        ) : (
+          <span className="panel absolute right-3 top-3 rounded px-2 py-1 text-xs font-medium text-emerald-300" title={m.provenance.collections.join(", ")}>
+            {m.provenance.label}
+          </span>
+        )}
         {hover && (
           <span className="panel pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded px-2 py-1 mono text-xs">
             {formatHover(hover)} · {hover.value === null ? "no data" : `${hover.value.toFixed(3)} ${step?.kind === "wise" && !isDiff ? "DN" : "MJy/sr"}`}
