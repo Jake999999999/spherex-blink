@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RotateCcw, Compass, Route, BookOpen, Settings, TriangleAlert, Activity, ChevronRight, Download, Send } from "lucide-react";
+import { RotateCcw, Compass, Route, BookOpen, Settings, TriangleAlert, Activity, ChevronRight, Download, Send, Share2, Film } from "lucide-react";
 import { buildFits, card, download, longCards, wcsCards } from "./lib/fitsio";
+import { encodeAnimatedGif, type GifFrame } from "./lib/gif";
 import { liveAvailable } from "./lib/live";
 import { sendViaSamp } from "./lib/samp";
 import { GAIA_G_LIMIT, SkyCanvas, formatHover, type HoverInfo, type SkyCanvasHandle } from "./components/SkyCanvas";
@@ -609,6 +610,8 @@ export default function App() {
   }, [currentFitsPayload]);
 
   const [sampNote, setSampNote] = useState<string | null>(null);
+  const [gifBusy, setGifBusy] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const sampTimer = useRef<number | null>(null);
   const flashSamp = useCallback((msg: string) => {
     setSampNote(msg);
@@ -625,6 +628,46 @@ export default function App() {
       flashSamp(e instanceof Error ? e.message : String(e));
     }
   }, [currentFitsPayload, flashSamp]);
+
+  const exportBlinkGif = useCallback(async () => {
+    if (!bundle || !steps.length || gifBusy) return;
+    setGifBusy(true);
+    setPlaying(false);
+    const prevIdx = stepIdx;
+    try {
+      const frames: GifFrame[] = [];
+      let gw = 0;
+      let gh = 0;
+      const delayCs = Math.max(10, Math.round(100 / Math.max(0.5, fps)));
+      for (let i = 0; i < steps.length; i++) {
+        setStepIdx(i);
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const snap = canvasRef.current?.snapshot(`${shortName(bundle.meta.name)} · ${steps[i].label}`);
+        if (snap) {
+          gw = snap.width;
+          gh = snap.height;
+          frames.push({ rgba: snap.rgba, delayCs });
+        }
+      }
+      if (frames.length && gw > 0 && gh > 0) {
+        const bytes = encodeAnimatedGif(gw, gh, frames);
+        download(`${bundle.meta.id}-blink.gif`, bytes, "image/gif");
+      }
+    } finally {
+      setStepIdx(prevIdx);
+      setGifBusy(false);
+    }
+  }, [bundle, steps, gifBusy, stepIdx, fps]);
+
+  const copyShareLink = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setLinkCopied(true);
+      window.setTimeout(() => setLinkCopied(false), 2500);
+    } catch {
+      flashSamp("Copy the URL from your browser's address bar.");
+    }
+  }, [flashSamp]);
 
   const motion = useMemo(() => {
     if (!bundle || !selected) return null;
@@ -783,6 +826,13 @@ export default function App() {
               <Route size={14} /> Guided tour
             </button>
           )}
+          <button
+            onClick={copyShareLink}
+            title="Copy shareable link to this exact view, target, wavelength, and mode"
+            className="inline-flex items-center gap-1.5 rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-300 hover:bg-white/5"
+          >
+            <Share2 size={14} /> {linkCopied ? "Copied!" : "Share"}
+          </button>
           <button
             onClick={() => {
               if (showHelp && helpTab !== "settings") setShowHelp(false);
@@ -953,6 +1003,12 @@ export default function App() {
                 <Download size={13} />
                 <span className="ml-1">FITS</span>
               </OverlayBtn>
+              {state.mode === "blink" && steps.length > 0 && (
+                <OverlayBtn active={gifBusy} onClick={exportBlinkGif} title="Export animated Blink GIF for slides & papers">
+                  <Film size={13} />
+                  <span className="ml-1">{gifBusy ? "GIF…" : "GIF"}</span>
+                </OverlayBtn>
+              )}
               <OverlayBtn active={false} onClick={sampFits} title="Send this FITS image to Aladin, TOPCAT, or DS9 via Web SAMP (requires local server)">
                 <Send size={12} />
                 <span className="ml-1">SAMP</span>

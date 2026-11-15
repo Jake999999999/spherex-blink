@@ -19,6 +19,7 @@ export interface SkyCanvasHandle {
   resetView(): void;
   view(): View;
   redraw(): void;
+  snapshot(label?: string): { width: number; height: number; rgba: Uint8ClampedArray } | null;
 }
 
 interface Props {
@@ -177,6 +178,33 @@ export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, o
     },
     view: () => ({ ...viewRef.current }),
     redraw: paint,
+    snapshot: (label?: string) => {
+      paint();
+      const gl = glRef.current;
+      const ov = ovRef.current;
+      if (!gl || !ov || gl.width === 0 || gl.height === 0) return null;
+      const maxW = 480;
+      const scale = Math.min(1, maxW / gl.width);
+      const w = Math.max(1, Math.round(gl.width * scale));
+      const h = Math.max(1, Math.round(gl.height * scale));
+      const off = document.createElement("canvas");
+      off.width = w;
+      off.height = h;
+      const ctx = off.getContext("2d");
+      if (!ctx) return null;
+      ctx.drawImage(gl, 0, 0, w, h);
+      ctx.drawImage(ov, 0, 0, w, h);
+      if (label) {
+        ctx.font = "600 12px system-ui, sans-serif";
+        const pad = 8;
+        const tw = ctx.measureText(label).width;
+        ctx.fillStyle = "rgba(3,5,10,0.82)";
+        ctx.fillRect(10, 10, tw + pad * 2, 22);
+        ctx.fillStyle = "#e2e8f0";
+        ctx.fillText(label, 10 + pad, 25);
+      }
+      return { width: w, height: h, rgba: ctx.getImageData(0, 0, w, h).data };
+    },
   }));
 
   // screen <-> data pixel (data y grows up; screen y grows down)

@@ -237,3 +237,120 @@ export const REFERENCE_BANDS: { label: string; wl: number }[] = [
   { label: "CO₂", wl: 4.27 },
   { label: "CO", wl: 4.67 },
 ];
+
+/** Key rest-frame atomic, molecular, PAH, and ice features for redshift-aware inspection. */
+export const SPECTRAL_LINES: { label: string; wl: number; kind: "ice" | "gas" | "pah" }[] = [
+  { label: "Hα", wl: 0.6563, kind: "gas" },
+  { label: "Paβ", wl: 1.2822, kind: "gas" },
+  { label: "Paα", wl: 1.8756, kind: "gas" },
+  { label: "H₂ S(1)", wl: 2.1218, kind: "gas" },
+  { label: "Brγ", wl: 2.1661, kind: "gas" },
+  { label: "H₂O ice", wl: 3.05, kind: "ice" },
+  { label: "PAH", wl: 3.29, kind: "pah" },
+  { label: "CH₄", wl: 3.30, kind: "ice" },
+  { label: "Brα", wl: 4.0523, kind: "gas" },
+  { label: "CO₂ ice", wl: 4.27, kind: "ice" },
+  { label: "CO ice", wl: 4.67, kind: "ice" },
+];
+
+const HC_KB_UM_K = 14387.77;
+
+/** Relative Planck spectral radiance F_nu(lambda, T) up to an overall scale factor. */
+export function planckNu(wlUm: number, tempK: number): number {
+  const x = HC_KB_UM_K / (wlUm * Math.max(100, tempK));
+  if (x > 700) return 0;
+  return 1 / (wlUm ** 3 * Math.expm1(x));
+}
+
+/** Fit a Planck blackbody temperature (K) + scaled curve (mJy) to positive unflagged points. */
+export function fitBlackbody(pts: { wl: number; flux: number; flag?: number }[]): { tempK: number; curve: { wl: number; flux: number }[] } | null {
+  const clean = pts.filter((p) => (p.flag ?? FLAG_OK) === FLAG_OK && Number.isFinite(p.flux) && p.flux > 0 && p.wl > 0);
+  if (clean.length < 4) return null;
+  let bestT = 3000;
+  let bestErr = Infinity;
+  const score = (T: number) => {
+    const ratios = clean.map((p) => p.flux / Math.max(1e-30, planckNu(p.wl, T))).sort((a, b) => a - b);
+    const scale = ratios[ratios.length >> 1];
+    let err = 0;
+    for (const p of clean) {
+      const pred = scale * planckNu(p.wl, T);
+      const d = Math.log(p.flux) - Math.log(Math.max(1e-30, pred));
+      err += d * d;
+    }
+    return { err, scale };
+  };
+  for (let T = 300; T <= 12000; T = Math.round(T * 1.15)) {
+    const { err } = score(T);
+    if (err < bestErr) {
+      bestErr = err;
+      bestT = T;
+    }
+  }
+  const lo = Math.max(250, Math.round(bestT * 0.8));
+  const hi = Math.min(15000, Math.round(bestT * 1.25));
+  for (let T = lo; T <= hi; T += Math.max(25, Math.round((hi - lo) / 20))) {
+    const { err } = score(T);
+    if (err < bestErr) {
+      bestErr = err;
+      bestT = T;
+    }
+  }
+  const { scale } = score(bestT);
+  const curve: { wl: number; flux: number }[] = [];
+  for (let wl = 0.75; wl <= 5.02; wl += 0.08) {
+    curve.push({ wl, flux: scale * planckNu(wl, bestT) });
+  }
+  return { tempK: bestT, curve };
+}
+
+export interface CataloguePoint {
+  band: string;
+  wl: number;
+  flux: number; // mJy
+  source: "2MASS" | "AllWISE";
+}
+
+const VEGA_ZP_JY: Record<string, { wl: number; zp: number; source: "2MASS" | "AllWISE" }> = {
+  J: { wl: 1.235, zp: 1594, source: "2MASS" },
+  H: { wl: 1.662, zp: 1024, source: "2MASS" },
+  Ks: { wl: 2.159, zp: 666.7, source: "2MASS" },
+  W1: { wl: 3.35, zp: 309.54, source: "AllWISE" },
+  W2: { wl: 4.6, zp: 171.79, source: "AllWISE" },
+};
+
+/** Fetch nearest 2MASS & AllWISE fluxes (mJy) via CDS VizieR TAP for calibration overlay. */
+export async function fetchCataloguePhotometry(ra: number, dec: number, fetchFn: typeof fetch = fetch): Promise<CataloguePoint[]> {
+  const tap = "https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync";
+  const rDeg = 5 / 3600;
+  const query = async (sql: string) => {
+    const url = `${tap}?REQUEST=doQuery&LANG=ADQL&FORMAT=csv&QUERY=${encodeURIComponent(sql)}`;
+    const r = await fetchFn(url, { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) throw new Error(`VizieR HTTP ${r.status}`);
+    const lines = (await r.text()).trim().split(/\r?\n/);
+    if (lines.length < 2) return null;
+    const cols = lines[0].split(",");
+    const vals = lines[1].split(",");
+    return Object.fromEntries(cols.map((c, i) => [c.trim(), vals[i]?.trim() ?? ""]));
+  };
+  const out: CataloguePoint[] = [];
+  const [tm, aw] = await Promise.allSettled([
+    query(`SELECT TOP 1 Jmag,Hmag,Kmag FROM "II/246/out" WHERE 1=CONTAINS(POINT('ICRS',RAJ2000,DEJ2000),CIRCLE('ICRS',${ra},${dec},${rDeg}))`),
+    query(`SELECT TOP 1 W1mag,W2mag FROM "II/328/allwise" WHERE 1=CONTAINS(POINT('ICRS',RAJ2000,DEJ2000),CIRCLE('ICRS',${ra},${dec},${rDeg}))`),
+  ]);
+  const add = (band: string, magStr?: string) => {
+    const m = Number(magStr);
+    if (!magStr || !Number.isFinite(m)) return;
+    const spec = VEGA_ZP_JY[band];
+    out.push({ band, wl: spec.wl, flux: spec.zp * 1000 * 10 ** (-0.4 * m), source: spec.source });
+  };
+  if (tm.status === "fulfilled" && tm.value) {
+    add("J", tm.value.Jmag);
+    add("H", tm.value.Hmag);
+    add("Ks", tm.value.Kmag);
+  }
+  if (aw.status === "fulfilled" && aw.value) {
+    add("W1", aw.value.W1mag);
+    add("W2", aw.value.W2mag);
+  }
+  return out;
+}

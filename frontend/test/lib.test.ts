@@ -254,3 +254,28 @@ test("loadRemoteIndex rewrites base URLs and swallows network/HTTP errors", asyn
   const throwFetch = (async () => { throw new Error("offline"); }) as unknown as typeof fetch;
   expect(await loadRemoteIndex("https://jake999999999.github.io/spherex-blink-data", throwFetch)).toEqual([]);
 });
+
+import { fitBlackbody, planckNu } from "../src/lib/spectra";
+import { encodeAnimatedGif } from "../src/lib/gif";
+test("fitBlackbody recovers a synthetic Planck temperature", () => {
+  const pts = [0.8, 1.2, 1.6, 2.2, 3.0, 4.0, 4.8].map((wl) => ({
+    wl,
+    flux: 1000 * planckNu(wl, 4500),
+    flag: 0,
+  }));
+  const fit = fitBlackbody(pts);
+  expect(fit).not.toBeNull();
+  expect(fit!.tempK).toBeGreaterThan(4100);
+  expect(fit!.tempK).toBeLessThan(4900);
+});
+
+test("encodeAnimatedGif produces a valid multi-frame GIF89a binary", () => {
+  const f1 = new Uint8ClampedArray(4 * 4 * 4).fill(255);
+  const f2 = new Uint8ClampedArray(4 * 4 * 4).fill(0);
+  const gif = encodeAnimatedGif(4, 4, [
+    { rgba: f1, delayCs: 25 },
+    { rgba: f2, delayCs: 25 },
+  ]);
+  expect(String.fromCharCode(...gif.slice(0, 6))).toBe("GIF89a");
+  expect(gif[gif.length - 1]).toBe(0x3b);
+});

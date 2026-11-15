@@ -5,7 +5,7 @@ import { sendViaSamp } from "../lib/samp";
 import { mjdToYear as yearOf } from "../lib/astro";
 import { describeLightCurve, describeSpectrum, detrendByWavelength, playPlan, sonifyPlan, stopSound } from "../lib/sonify";
 import type { Epoch, ExposureInfo } from "../lib/bundle";
-import { attachExposureMeta, convertFlux, defaultMeasure, FLAG_OK, FLUX_UNIT_LABELS, MEASURE_NOTES, REFERENCE_BANDS, points, preferRing, toCsv, type FluxUnit, type Measure, type Point, type Spectra, type SpectraSource } from "../lib/spectra";
+import { attachExposureMeta, convertFlux, defaultMeasure, fetchCataloguePhotometry, fitBlackbody, FLAG_OK, FLUX_UNIT_LABELS, MEASURE_NOTES, planckNu, points, preferRing, REFERENCE_BANDS, SPECTRAL_LINES, toCsv, type CataloguePoint, type FluxUnit, type Measure, type Point, type Spectra, type SpectraSource } from "../lib/spectra";
 import type { MapSpectrum, Mix } from "../lib/colour";
 import { formatMjdRange, mjdToDate, mjdToYear } from "../lib/astro";
 import { formatNumber, logTicks, niceTicks, robustRange } from "../lib/ticks";
@@ -64,20 +64,68 @@ export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, 
   useEffect(() => setLcBand(band), [band]);
   const [logY, setLogY] = useState(false);
   const [unit, setUnit] = useState<FluxUnit>("mjy");
+  const [showLines, setShowLines] = useState(false);
+  const [redshift, setRedshift] = useState(0);
+  const [showBlackbody, setShowBlackbody] = useState(false);
+  const [tempK, setTempK] = useState<number | null>(null);
+  const [catPts, setCatPts] = useState<CataloguePoint[] | null>(null);
+  const [catBusy, setCatBusy] = useState(false);
+  const [catNote, setCatNote] = useState<string | null>(null);
+  useEffect(() => {
+    setTempK(null);
+    setCatPts(null);
+    setCatNote(null);
+  }, [source, title]);
   const hasRing = !!source?.wing_flux;
   const lcPts = useMemo(() => (spectra && source ? attachExposureMeta(points(spectra, source, lcMeasure), exposures) : []), [spectra, source, lcMeasure, exposures]);
+  const loadCatalogue = async () => {
+    if (!source) return;
+    if (catPts) {
+      setCatPts(null);
+      setCatNote(null);
+      return;
+    }
+    setCatBusy(true);
+    setCatNote(null);
+    try {
+      const res = await fetchCataloguePhotometry(source.ra, source.dec);
+      setCatPts(res);
+      if (!res.length) setCatNote("No 2MASS/AllWISE match within 5″ (or VizieR unreachable).");
+    } catch {
+      setCatNote("VizieR 2MASS/AllWISE lookup timed out or unreachable.");
+    } finally {
+      setCatBusy(false);
+    }
+  };
   const tabs = source ? (["spectrum", "lightcurve", "table"] as const) : (["spectrum"] as const);
   const shownTab: PanelTab = source ? tab : "spectrum";
 
   const [playing, setPlaying] = useState(false);
   useEffect(() => () => stopSound(), []);
   const lcDet = lcPts.filter((p) => p.det === lcBand);
-  const mapPts: Point[] = map?.spectrum
-    ? map.spectrum.wl.flatMap((w, i) => {
-        const f = map.spectrum!.flux[i];
-        return f === null ? [] : [{ i, mjd: 0, wl: w, bw: null, flux: f, err: 0, flag: 0, det: 0, epoch: -1 }];
-      })
-    : [];
+  const mapPts: Point[] = useMemo(
+    () =>
+      map?.spectrum
+        ? map.spectrum.wl.flatMap((w, i) => {
+            const f = map.spectrum!.flux[i];
+            return f === null ? [] : [{ i, mjd: 0, wl: w, bw: null, flux: f, err: 0, flag: 0, det: 0, epoch: -1 }];
+          })
+        : [],
+    [map],
+  );
+  const bbInput = useMemo(() => (pts.length ? pts : mapPts), [pts, mapPts]);
+  const bbFit = useMemo(() => (showBlackbody ? fitBlackbody(bbInput) : null), [showBlackbody, bbInput]);
+  const activeTempK = tempK ?? bbFit?.tempK ?? 3000;
+  const bbCurve = useMemo(() => {
+    if (!showBlackbody) return null;
+    const clean = bbInput.filter((p) => (p.flag ?? FLAG_OK) === FLAG_OK && Number.isFinite(p.flux) && p.flux > 0 && p.wl > 0);
+    if (clean.length < 4) return null;
+    const ratios = clean.map((p) => p.flux / Math.max(1e-30, planckNu(p.wl, activeTempK))).sort((a, b) => a - b);
+    const scale = ratios[ratios.length >> 1];
+    const curve: { wl: number; flux: number }[] = [];
+    for (let wl = 0.75; wl <= 5.02; wl += 0.08) curve.push({ wl, flux: scale * planckNu(wl, activeTempK) });
+    return { tempK: activeTempK, curve };
+  }, [showBlackbody, bbInput, activeTempK]);
   const words =
     shownTab === "lightcurve"
       ? describeLightCurve(lcDet)
@@ -257,6 +305,10 @@ export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, 
             unit={unit}
             map={map?.spectrum ? { ...map.spectrum, label: map.label } : null}
             windows={colourWindows}
+            showLines={showLines}
+            redshift={redshift}
+            blackbody={bbCurve}
+            catalogue={catPts}
           />
         ) : shownTab === "lightcurve" ? (
           <LightCurveChart pts={lcPts.filter((p) => p.det === lcBand)} det={detectors[lcBand - 1]} />
@@ -286,6 +338,36 @@ export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, 
                 <input type="checkbox" checked={logY} onChange={(e) => setLogY(e.target.checked)} /> log flux
               </label>
             )}
+            <label className="flex items-center gap-1" title="Show rest-frame H₂O/CO₂/CO ice, PAH, and H recombination lines shifted by (1 + z)">
+              <input type="checkbox" checked={showLines} onChange={(e) => setShowLines(e.target.checked)} /> Lines
+            </label>
+            {showLines && (
+              <label className="flex items-center gap-1">
+                <span className="mono">z={redshift.toFixed(2)}</span>
+                <input type="range" min={0} max={4} step={0.01} value={redshift} onChange={(e) => setRedshift(Number(e.target.value))} className="w-16" aria-label="Redshift z" />
+              </label>
+            )}
+            <label className="flex items-center gap-1" title="Fit and overlay a Planck blackbody curve">
+              <input type="checkbox" checked={showBlackbody} onChange={(e) => setShowBlackbody(e.target.checked)} /> Blackbody
+            </label>
+            {showBlackbody && bbCurve && (
+              <label className="flex items-center gap-1">
+                <span className="mono text-amber-200">{bbCurve.tempK} K</span>
+                <input type="range" min={300} max={10000} step={50} value={activeTempK} onChange={(e) => setTempK(Number(e.target.value))} className="w-16" aria-label="Blackbody temperature (K)" />
+              </label>
+            )}
+            {source && (
+              <button
+                type="button"
+                onClick={loadCatalogue}
+                disabled={catBusy}
+                title="Overlay 2MASS (J, H, Ks) and AllWISE (W1, W2) catalogue photometry from VizieR"
+                className={`rounded border px-1.5 ${catPts?.length ? "border-emerald-400 text-emerald-200" : "border-sky-400/20 text-slate-300 hover:border-sky-400/50"}`}
+              >
+                {catBusy ? "Loading…" : catPts?.length ? "Hide 2MASS/WISE" : "+ 2MASS/WISE"}
+              </button>
+            )}
+            {catNote && <span className="text-amber-300">{catNote}</span>}
           </>
         )}
         {source && (hasRing || source.psf_flux) && (
@@ -397,6 +479,10 @@ function SpectrumChart({
   unit,
   map,
   windows = null,
+  showLines = false,
+  redshift = 0,
+  blackbody = null,
+  catalogue = null,
 }: {
   pts: Point[];
   epochs: Epoch[];
@@ -405,6 +491,10 @@ function SpectrumChart({
   unit: FluxUnit;
   map: (MapSpectrum & { label: string }) | null;
   windows?: Mix | null;
+  showLines?: boolean;
+  redshift?: number;
+  blackbody?: { tempK: number; curve: { wl: number; flux: number }[] } | null;
+  catalogue?: CataloguePoint[] | null;
 }) {
   const [ref, { w, h }] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<Hover | null>(null);
@@ -512,10 +602,25 @@ function SpectrumChart({
                 </text>
               </g>
             ))}
-          {REFERENCE_BANDS.map((b, i) => (
-            <g key={`${b.label}${b.wl}`}>
-              <line x1={sx(b.wl)} x2={sx(b.wl)} y1={M.t} y2={M.t + ih} stroke="rgba(148,163,184,0.25)" strokeDasharray="2 4" />
-              <text x={sx(b.wl)} y={M.t - (i % 2 ? 4 : 14)} textAnchor="middle" className="fill-slate-400 text-[10px]">
+          {(showLines
+            ? SPECTRAL_LINES.map((ln) => ({ label: ln.label, wl: ln.wl * (1 + redshift), kind: ln.kind })).filter((ln) => ln.wl >= 0.72 && ln.wl <= 5.02)
+            : REFERENCE_BANDS.map((b) => ({ ...b, kind: "ref" as const }))
+          ).map((b, i) => (
+            <g key={`${b.label}${b.wl.toFixed(3)}`}>
+              <line
+                x1={sx(b.wl)}
+                x2={sx(b.wl)}
+                y1={M.t}
+                y2={M.t + ih}
+                stroke={b.kind === "ice" ? "rgba(56,189,248,0.4)" : b.kind === "pah" ? "rgba(251,191,36,0.4)" : b.kind === "gas" ? "rgba(167,139,250,0.4)" : "rgba(148,163,184,0.25)"}
+                strokeDasharray="2 4"
+              />
+              <text
+                x={sx(b.wl)}
+                y={M.t - (i % 2 ? 4 : 14)}
+                textAnchor="middle"
+                className={`text-[10px] ${b.kind === "ice" ? "fill-sky-300" : b.kind === "pah" ? "fill-amber-300" : b.kind === "gas" ? "fill-violet-300" : "fill-slate-400"}`}
+              >
                 {b.label}
               </text>
             </g>
@@ -550,6 +655,31 @@ function SpectrumChart({
               aria-label={mapConv.label}
             />
           )}
+          {blackbody && (() => {
+            const ptsStr = blackbody.curve
+              .flatMap((c) => {
+                const conv = convertFlux(c.flux, 0, c.wl, unit);
+                return conv && Number.isFinite(conv.value) ? [`${sx(c.wl).toFixed(1)},${clampY(conv.value).toFixed(1)}`] : [];
+              })
+              .join(" ");
+            return ptsStr ? (
+              <polyline points={ptsStr} fill="none" stroke="#fbbf24" strokeWidth={1.6} strokeDasharray="5 3" strokeOpacity={0.9} />
+            ) : null;
+          })()}
+          {catalogue?.map((cp) => {
+            const conv = convertFlux(cp.flux, 0, cp.wl, unit);
+            if (!conv || !Number.isFinite(conv.value)) return null;
+            const cx = sx(cp.wl);
+            const cy = clampY(conv.value);
+            return (
+              <g key={`${cp.source}-${cp.band}`}>
+                <polygon points={`${cx},${cy - 5} ${cx + 5},${cy} ${cx},${cy + 5} ${cx - 5},${cy}`} fill="#34d399" stroke="#064e3b" strokeWidth={1} />
+                <text x={cx + 6} y={cy - 4} className="fill-emerald-300 text-[9px] font-semibold">
+                  {cp.band}
+                </text>
+              </g>
+            );
+          })}
           <g>
             {converted.map(({ p, value, err, upperLimit }) => {
               const c = visitColor(p.epoch, nV);
