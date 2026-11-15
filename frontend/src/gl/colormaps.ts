@@ -1,12 +1,24 @@
 // 256-entry RGBA lookup tables built from control points (perceptual maps sampled from matplotlib's
 // published definitions at a few stops; good enough for display, not for colour science).
 
-export type ColormapName = "gray" | "inverted" | "inferno" | "viridis" | "magma";
-export const COLORMAPS: ColormapName[] = ["gray", "inverted", "inferno", "viridis", "magma"];
+export type ColormapName = "night" | "gray" | "inverted" | "inferno" | "viridis" | "magma";
+export const COLORMAPS: ColormapName[] = ["night", "gray", "inferno", "magma", "viridis", "inverted"];
+export const COLORMAP_LABELS: Record<ColormapName, string> = {
+  night: "Night sky",
+  gray: "Grey",
+  inverted: "Ink on paper",
+  inferno: "Inferno",
+  viridis: "Viridis",
+  magma: "Magma",
+};
 
 type Stop = [number, number, number];
 
 const STOPS: Record<ColormapName | "diverging", Stop[]> = {
+  // Monotonic in lightness (black -> deep blue -> ice -> white), so brightness still reads as brightness.
+  night: [
+    [2, 4, 10], [10, 22, 48], [24, 52, 98], [46, 96, 150], [92, 154, 200], [170, 212, 236], [255, 255, 255],
+  ],
   gray: [
     [0, 0, 0],
     [255, 255, 255],

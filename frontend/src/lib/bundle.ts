@@ -64,6 +64,7 @@ export interface ExposureInfo {
 export interface Meta {
   id: string;
   name: string;
+  tagline?: string;
   blurb: string;
   notes: string[];
   status: "ready" | "conditional";
@@ -112,8 +113,12 @@ export interface GaiaStar {
 export interface IndexEntry {
   id: string;
   name: string;
+  tagline?: string;
   status: "ready" | "conditional";
 }
+
+/** "Pulsating red giant (Gaia DR3 …)" -> "Pulsating red giant" for compact labels. */
+export const shortName = (name: string) => name.replace(/\s*\(.*\)\s*$/, "");
 
 export interface Bundle {
   meta: Meta;

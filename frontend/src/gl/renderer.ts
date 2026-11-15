@@ -36,6 +36,7 @@ uniform float uBeta;
 uniform float uMix;       // crossfade weight toward uLayerB in single mode (0 = hard cut)
 uniform vec3 uNoData;
 uniform float uGrid;      // >0 draws the pixel grid at this screen-pixel size
+uniform int uSmooth;      // 1 = Catmull-Rom bicubic display interpolation, 0 = raw pixels
 out vec4 outColor;
 
 float stretch01(float x) {
@@ -43,11 +44,45 @@ float stretch01(float x) {
   return uStretch == 1 ? x : asinh(x * uBeta) / asinh(uBeta);
 }
 
+float fetchPx(int layer, ivec2 p) {
+  ivec2 s = textureSize(uFrames, 0).xy;
+  return texelFetch(uFrames, ivec3(clamp(p, ivec2(0), s - 1), layer), 0).r;
+}
+
+vec4 crWeights(float t) {
+  float t2 = t * t, t3 = t2 * t;
+  return vec4(-0.5 * t3 + t2 - 0.5 * t, 1.5 * t3 - 2.5 * t2 + 1.0, -1.5 * t3 + 2.0 * t2 + 0.5 * t, 0.5 * t3 - 0.5 * t2);
+}
+
+// Display interpolation only: smooths the look of coarse 6.15" pixels. Next to missing data it
+// falls back to the raw pixel so no value is invented across a gap.
+float sampleLayer(int layer, vec2 uv) {
+  vec2 s = vec2(textureSize(uFrames, 0).xy);
+  ivec2 nearest = ivec2(floor(uv * s));
+  if (uSmooth == 0) return fetchPx(layer, nearest);
+  vec2 p = uv * s - 0.5;
+  ivec2 i = ivec2(floor(p));
+  vec2 f = p - floor(p);
+  vec4 wx = crWeights(f.x);
+  vec4 wy = crWeights(f.y);
+  float acc = 0.0;
+  for (int y = 0; y < 4; y++) {
+    float row = 0.0;
+    for (int x = 0; x < 4; x++) {
+      float v = fetchPx(layer, i + ivec2(x - 1, y - 1));
+      if (v < -1e29) return fetchPx(layer, nearest);
+      row += v * wx[x];
+    }
+    acc += row * wy[y];
+  }
+  return acc;
+}
+
 void main() {
-  float a = texture(uFrames, vec3(vUv, float(uLayerA))).r;
+  float a = sampleLayer(uLayerA, vUv);
   vec3 col;
   if (uMode == 1) {
-    float b = texture(uFrames, vec3(vUv, float(uLayerB))).r;
+    float b = sampleLayer(uLayerB, vUv);
     if (a < -1e29 || b < -1e29) { outColor = vec4(uNoData, 1.0); return; }
     float x = clamp((a - b) / uLimit, -1.0, 1.0);
     float y = uStretch == 1 ? x : sign(x) * asinh(abs(x) * uBeta) / asinh(uBeta);
@@ -56,7 +91,7 @@ void main() {
     if (a < -1e29) { outColor = vec4(uNoData, 1.0); return; }
     float v = a;
     if (uMix > 0.0) {
-      float b = texture(uFrames, vec3(vUv, float(uLayerB))).r;
+      float b = sampleLayer(uLayerB, vUv);
       if (b > -1e29) v = mix(a, b, uMix);
     }
     col = texture(uLut, vec2(stretch01((v - uBlack) / (uWhite - uBlack)), 0.5)).rgb;
@@ -85,6 +120,8 @@ export interface DrawParams {
   centerX: number;
   centerY: number;
   pixelGrid: boolean;
+  /** bicubic display interpolation (false = raw pixels) */
+  smooth: boolean;
 }
 
 export class Renderer {
@@ -106,7 +143,7 @@ export class Renderer {
     this.prog = link(gl, VERT, FRAG);
     gl.useProgram(this.prog);
     for (const n of ["uScale", "uOffset", "uSize", "uFrames", "uLut", "uDivLut", "uMode", "uLayerA", "uLayerB",
-      "uBlack", "uWhite", "uLimit", "uStretch", "uBeta", "uMix", "uNoData", "uGrid"]) {
+      "uBlack", "uWhite", "uLimit", "uStretch", "uBeta", "uMix", "uNoData", "uGrid", "uSmooth"]) {
       this.loc[n] = gl.getUniformLocation(this.prog, n);
     }
     const vbo = gl.createBuffer();
@@ -188,8 +225,9 @@ export class Renderer {
     gl.uniform1i(this.loc.uStretch, p.stretch === "linear" ? 1 : 0);
     gl.uniform1f(this.loc.uBeta, ASINH_BETA);
     gl.uniform1f(this.loc.uMix, p.mix);
-    gl.uniform3f(this.loc.uNoData, 0.09, 0.07, 0.12);
-    gl.uniform1f(this.loc.uGrid, p.pixelGrid && z >= 12 ? z : 0);
+    gl.uniform3f(this.loc.uNoData, 0.06, 0.05, 0.09);
+    gl.uniform1f(this.loc.uGrid, p.pixelGrid && !p.smooth && z >= 12 ? z : 0);
+    gl.uniform1i(this.loc.uSmooth, p.smooth ? 1 : 0);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 

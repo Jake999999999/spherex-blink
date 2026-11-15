@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Pause, Play, SkipBack, SkipForward, RotateCcw, Info, Compass, Route } from "lucide-react";
+import { RotateCcw, Compass, Route, Keyboard, TriangleAlert, Activity, ChevronRight } from "lucide-react";
 import { GAIA_G_LIMIT, SkyCanvas, formatHover, type HoverInfo, type SkyCanvasHandle } from "./components/SkyCanvas";
 import { SpectrumPanel, type PanelTab } from "./components/SpectrumPanel";
 import { Tour, type TourStep } from "./components/Tour";
-import { framePlane, loadBundle, loadIndex, wisePlane, type Bundle, type IndexEntry } from "./lib/bundle";
+import { framePlane, loadBundle, loadIndex, shortName, wisePlane, type Bundle, type IndexEntry } from "./lib/bundle";
+import { TargetBar } from "./components/TargetBar";
+import { Timeline } from "./components/Timeline";
+import { WavelengthPicker } from "./components/WavelengthPicker";
 import { blinkSteps, epochsWithBand, layerOf, type Step } from "./lib/sequence";
 import { diffLimit, levelsFor, subtract } from "./lib/stretch";
 import { DEFAULT_STATE, parseState, serializeState, type ViewState } from "./lib/urlState";
-import { COLORMAPS, type ColormapName } from "./gl/colormaps";
-import { formatMjdRange, mjdToYear, propagate } from "./lib/astro";
+import { COLORMAPS, COLORMAP_LABELS, buildLut, type ColormapName } from "./gl/colormaps";
+import { formatMjdMonth, formatMjdRange, mjdToYear, propagate } from "./lib/astro";
 import { formatDec, formatRa, separationArcsec, worldToPixel } from "./lib/wcs";
 import { nearestSource } from "./lib/spectra";
 import { centroid, fitMotion } from "./lib/motion";
@@ -100,12 +103,14 @@ export default function App() {
   const [fps, setFps] = useState(1.5);
   const [showGaia, setShowGaia] = useState(true);
   const [pixelGrid, setPixelGrid] = useState(false);
-  const [lo, setLo] = useState(5);
-  const [hi, setHi] = useState(99.7);
+  const [lo, setLo] = useState(20);
+  const [hi, setHi] = useState(99.8);
+  const [smooth, setSmooth] = useState(true);
+  const [showHelp, setShowHelp] = useState(false);
+  const [loadingId, setLoadingId] = useState<string | null>(null);
   const [diffPct, setDiffPct] = useState(99.8);
-  const [cmap, setCmap] = useState<ColormapName>("gray");
+  const [cmap, setCmap] = useState<ColormapName>("night");
   const [hover, setHover] = useState<HoverInfo | null>(null);
-  const [showAbout, setShowAbout] = useState(false);
   const canvasRef = useRef<SkyCanvasHandle>(null);
   const urlApplied = useRef(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -127,11 +132,12 @@ export default function App() {
     const id = index.some((t) => t.id === state.target) ? state.target : index[0]?.id;
     if (!id) return;
     let live = true;
-    setBundle(null);
+    setLoadingId(id); // keep showing the old target until the new one is ready
     loadBundle(id)
       .then((b) => {
         if (!live) return;
         setBundle(b);
+        setLoadingId(null);
         setStepIdx(0);
         setMeasure(false);
         setPickHint(null);
@@ -219,6 +225,7 @@ export default function App() {
     mix: 0,
     colormap: cmap,
     pixelGrid,
+    smooth,
   };
 
   const valueAt = useCallback(
@@ -400,6 +407,11 @@ export default function App() {
         case "Escape":
           setSelectedId(null);
           setPickHint(null);
+          setShowHelp(false);
+          break;
+        case "p":
+        case "P":
+          setSmooth((s) => !s);
           break;
         default:
           return;
@@ -415,291 +427,398 @@ export default function App() {
   const m = bundle.meta;
   const t = m.target;
   const diffYears = isDiff ? [m.epochs[state.t1].mjd, m.epochs[state.t2].mjd] : null;
-  const shownYear = isDiff ? null : step ? mjdToYear(step.mjd) : null;
   const targetPm = Math.hypot(t.pmra, t.pmdec) / 1000; // arcsec/yr
   const det = m.detectors[state.band - 1];
 
+  const sourceLabel = !isDiff && step?.kind === "wise" ? "AllWISE 2010 · NASA/JPL-Caltech/UCLA via IRSA" : `${m.provenance.label} · NASA/JPL-Caltech/IPAC`;
+
   return (
-    <div className="flex h-full flex-col lg:flex-row">
-      {/* sidebar */}
-      <aside className="panel order-2 flex w-full shrink-0 flex-col gap-4 overflow-y-auto p-4 text-sm lg:order-1 lg:w-80">
-        <header>
-          <h1 className="text-base font-semibold tracking-wide text-sky-300">SPHEREx Blink</h1>
-          <p className="text-xs text-slate-400">Real near-infrared sky survey data, visit by visit.</p>
-          <div className="mt-2 flex flex-wrap gap-2 text-xs">
-            {tourSteps.length > 0 && (
-              <button onClick={() => goTour(0)} className="inline-flex items-center gap-1 rounded border border-sky-400/30 px-2 py-0.5 text-sky-200 hover:bg-sky-400/10">
-                <Route size={12} /> Guided tour
+    <div className="flex h-full flex-col">
+      {/* header */}
+      <header className="flex items-center gap-3 px-4 pb-2 pt-3">
+        <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
+          <circle cx="14" cy="14" r="12" fill="none" stroke="#38bdf8" strokeOpacity="0.5" />
+          <circle cx="14" cy="14" r="5" fill="#38bdf8" />
+          <circle cx="22" cy="8" r="2" fill="#fbbf24" />
+        </svg>
+        <div className="min-w-0">
+          <h1 className="text-base font-semibold leading-tight text-white">SPHEREx Blink</h1>
+          <p className="truncate text-xs text-slate-400">Watch the infrared sky change, using real data from NASA's SPHEREx telescope</p>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          {tourSteps.length > 0 && (
+            <button onClick={() => goTour(0)} className="inline-flex items-center gap-1.5 rounded-md border border-sky-400/40 px-3 py-1.5 text-xs font-medium text-sky-200 hover:bg-sky-400/10">
+              <Route size={14} /> Guided tour
+            </button>
+          )}
+          <button
+            onClick={() => setShowHelp((h) => !h)}
+            aria-expanded={showHelp}
+            className="inline-flex items-center gap-1.5 rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-300 hover:bg-white/5"
+          >
+            <Keyboard size={14} /> Help
+          </button>
+        </div>
+      </header>
+      {showHelp && (
+        <div className="mx-4 mb-2 grid gap-x-6 gap-y-1 rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-300 sm:grid-cols-2 lg:grid-cols-4">
+          <p className="sm:col-span-2 lg:col-span-4 text-slate-400">
+            Each frame is one visit of NASA's SPHEREx telescope to this patch of sky. Blink between visits to spot what moves; switch to Difference to see only what changed.
+            Click a star for its spectrum and light curve. Scroll to zoom, drag to pan.
+          </p>
+          {[
+            ["Space", "play / pause"],
+            ["← →", "previous / next frame"],
+            ["D", "blink ↔ difference"],
+            ["G", "Gaia star markers"],
+            ["P", "smooth ↔ raw pixels"],
+            ["R", "reset zoom"],
+            ["Esc", "close the spectrum"],
+          ].map(([k, v]) => (
+            <span key={k}>
+              <kbd className="mono mr-2 rounded border border-white/20 px-1.5 py-0.5 text-[11px] text-white">{k}</kbd>
+              {v}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <TargetBar targets={index} current={m.id} onPick={(id) => set({ target: id })} />
+
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        {/* sky + timeline + spectrum */}
+        <section className="flex min-h-[70vh] min-w-0 flex-1 flex-col lg:min-h-0">
+          <div className={`relative mx-4 flex-1 overflow-hidden rounded-xl border border-white/10 bg-[#03050a] ${selected ? "min-h-[220px]" : "min-h-[44vh]"}`}>
+            <SkyCanvas
+              bundle={bundle}
+              draw={draw}
+              step={step}
+              diffMjds={diffYears ? [diffYears[0], diffYears[1]] : undefined}
+              showGaia={showGaia}
+              handleRef={canvasRef}
+              onHover={setHover}
+              valueAt={valueAt}
+              onPick={onPick}
+              selected={selected}
+              marks={motion?.pts ?? []}
+            />
+
+            {/* what am I looking at */}
+            <div className="pointer-events-none absolute left-3 top-3 max-w-[min(26rem,calc(100%-6.5rem))] rounded-lg border border-white/10 bg-slate-950/75 px-3 py-2 backdrop-blur">
+              <div className="flex items-center gap-2">
+                <span
+                  className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                    isDiff ? "bg-fuchsia-400/20 text-fuchsia-200" : step?.kind === "wise" ? "bg-amber-400/20 text-amber-200" : "bg-sky-400/20 text-sky-200"
+                  }`}
+                >
+                  {isDiff ? "Difference" : step?.kind === "wise" ? "WISE" : "SPHEREx"}
+                </span>
+                <span className="text-sm font-semibold text-white">
+                  {isDiff
+                    ? `${formatMjdMonth(m.epochs[state.t2].mjd)} minus ${formatMjdMonth(m.epochs[state.t1].mjd)}`
+                    : step
+                      ? step.kind === "wise"
+                        ? "2010"
+                        : `Visit ${step.epoch + 1} · ${formatMjdRange(m.epochs[step.epoch].mjd_min, m.epochs[step.epoch].mjd_max)}`
+                      : "No frames at this wavelength"}
+                </span>
+              </div>
+              <p className="mt-1 hidden text-xs leading-snug text-slate-300 sm:block">
+                {isDiff
+                  ? "Amber got brighter, cyan got fainter, black stayed the same. A star that moved leaves an amber/cyan pair."
+                  : step?.kind === "wise"
+                    ? "An older telescope's view, for comparison. Compare where the stars are, not how bright."
+                    : step
+                      ? `${step.sublabel.split(" · ").pop()} stacked at ${det.wl_min}–${det.wl_max} µm. The yellow cross marks where the target should be on this date.`
+                      : "Pick another wavelength."}
+              </p>
+              <p className="mt-1 text-[10px] text-slate-500">{sourceLabel}</p>
+            </div>
+
+            {tourIdx !== null && <Tour steps={tourSteps} index={tourIdx} onIndex={goTour} onClose={() => goTour(null)} />}
+            {pickHint && (
+              <button onClick={() => setPickHint(null)} className="absolute left-1/2 top-24 max-w-md -translate-x-1/2 rounded-lg border border-white/10 bg-slate-950/90 px-3 py-2 text-xs text-slate-300">
+                {pickHint}
               </button>
             )}
-            {bundle.spectra && !selected && (
-              <button onClick={() => setSelectedId("target")} className="rounded border border-sky-400/30 px-2 py-0.5 text-sky-200 hover:bg-sky-400/10">
-                Target spectrum
-              </button>
+            {loadingId && (
+              <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60 text-sm text-slate-300 backdrop-blur-sm">Loading…</div>
+            )}
+
+            <div className="pointer-events-none absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2">
+              {hover ? (
+                <span className="mono whitespace-nowrap rounded bg-slate-950/80 px-2 py-1 text-[11px] text-slate-300">
+                  {formatHover(hover)} ·{" "}
+                  {hover.value === null
+                    ? "no value (saturated or not covered)"
+                    : `${hover.value.toFixed(3)} ${step?.kind === "wise" && !isDiff ? "DN" : "MJy/sr"}`}
+                </span>
+              ) : (
+                <span className="hidden whitespace-nowrap rounded bg-slate-950/60 px-2 py-1 text-[11px] text-slate-400 sm:inline">Click a star for its spectrum · scroll to zoom · drag to pan</span>
+              )}
+            </div>
+            <div className="absolute right-3 top-3 flex gap-1">
+              <OverlayBtn active={smooth} onClick={() => setSmooth((s) => !s)} title="Smooth display vs. the raw 6.15″ pixels (P)">
+                {smooth ? "Smooth" : "Pixels"}
+              </OverlayBtn>
+              <OverlayBtn active={false} onClick={() => canvasRef.current?.resetView()} title="Reset zoom (R)">
+                <RotateCcw size={13} />
+              </OverlayBtn>
+            </div>
+          </div>
+
+          {/* bottom bar: timeline or compare */}
+          <div className="mx-4 mt-2 rounded-xl border border-white/10 bg-white/[0.03]">
+            {state.mode === "blink" ? (
+              <Timeline
+                steps={steps}
+                current={steps.length ? stepIdx % steps.length : 0}
+                playing={playing}
+                fps={fps}
+                onStep={(i) => {
+                  setPlaying(false);
+                  setStepIdx(i);
+                }}
+                onPlay={() => setPlaying((p) => !p)}
+                onFps={setFps}
+              />
+            ) : (
+              <div className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
+                <span className="text-slate-400">Compare</span>
+                <VisitSelect value={state.t2} epochs={m.epochs} ok={bandEpochs} onChange={(v) => set({ t2: v })} />
+                <span className="text-slate-500">minus</span>
+                <VisitSelect value={state.t1} epochs={m.epochs} ok={bandEpochs} onChange={(v) => set({ t1: v })} />
+                {!diffOk && <span className="text-xs text-amber-300">Pick two different visits that both have this wavelength.</span>}
+                <span className="ml-auto flex items-center gap-2 text-xs text-slate-400">
+                  <span className="h-2.5 w-16 rounded" style={{ background: "linear-gradient(90deg,#a5f3fc,#22d3ee,#085978,#060a10,#7c4206,#f59e0b,#fee68a)" }} />
+                  fainter · same · brighter
+                </span>
+              </div>
             )}
           </div>
-          <p className="mt-1 text-[11px] text-slate-500">Click a star for its spectrum and light curve.</p>
-        </header>
 
-        <Field label="Target">
-          <select
-            className="w-full rounded border border-sky-400/20 bg-slate-900 px-2 py-1.5"
-            value={m.id}
-            onChange={(e) => set({ target: e.target.value })}
-          >
-            {index.map((x) => (
-              <option key={x.id} value={x.id}>
-                {x.name}
-              </option>
-            ))}
-          </select>
-          <p className="mt-2 text-xs leading-relaxed text-slate-400">{m.blurb}</p>
-          {m.notes.map((n) => (
-            <p key={n} className="mt-1 text-xs text-amber-300/80">
-              {n}
-            </p>
-          ))}
-        </Field>
-
-        <Field label="Mode">
-          <Segmented
-            value={state.mode}
-            options={[
-              ["blink", "Blink"],
-              ["diff", "Difference"],
-            ]}
-            onChange={(v) => set({ mode: v as ViewState["mode"] })}
-          />
-          {state.mode === "diff" && (
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              {(["t1", "t2"] as const).map((k) => (
-                <label key={k} className="text-xs text-slate-400">
-                  {k === "t1" ? "Earlier (T1)" : "Later (T2)"}
-                  <select
-                    className="mt-1 w-full rounded border border-sky-400/20 bg-slate-900 px-1 py-1 text-slate-200"
-                    value={state[k]}
-                    onChange={(e) => set({ [k]: Number(e.target.value) })}
-                  >
-                    {m.epochs.map((ep, i) => (
-                      <option key={i} value={i} disabled={!bandEpochs.includes(i)}>
-                        Visit {i + 1} · {formatMjdRange(ep.mjd_min, ep.mjd_max)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ))}
-              {!diffOk && <p className="col-span-2 text-xs text-amber-300">Pick two different visits that both have this detector.</p>}
-              <p className="col-span-2 text-xs text-slate-400">
-                Amber = brighter in T2, cyan = brighter in T1. Stars that didn't change cancel to black.
-              </p>
+          {selected && bundle.spectra && (
+            <div className="mx-4 mb-3 mt-2 h-[44%] min-h-[280px] shrink-0 overflow-hidden rounded-xl border border-white/10">
+              <SpectrumPanel
+                spectra={bundle.spectra}
+                source={selected}
+                epochs={m.epochs}
+                detectors={m.detectors}
+                band={state.band}
+                tab={tab}
+                onTab={setTab}
+                onClose={() => setSelectedId(null)}
+              >
+                <MotionBar
+                  expectedPx={motion?.expectedPx ?? 0}
+                  measuring={measure}
+                  onMeasure={() => setMeasure((x) => !x)}
+                  fit={motion?.fit ?? null}
+                  n={motion?.pts.length ?? 0}
+                  gaia={{ east: selected.pmra / 1000, north: selected.pmdec / 1000 }}
+                  frames={steps.length}
+                />
+              </SpectrumPanel>
             </div>
           )}
-        </Field>
+          {!selected && <div className="h-3 shrink-0" />}
+        </section>
 
-        <Field label={`Detector ${state.band} · ${det.wl_min}–${det.wl_max} µm`}>
-          <div className="grid grid-cols-6 gap-1">
-            {m.detectors.map((d) => (
-              <button
-                key={d.detector}
-                title={`${d.wl_min}–${d.wl_max} µm`}
-                onClick={() => set({ band: d.detector })}
-                className={`rounded border py-1 mono text-xs ${
-                  state.band === d.detector ? "border-sky-400 bg-sky-400/15 text-sky-200" : "border-sky-400/20 text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                D{d.detector}
-              </button>
+        {/* controls */}
+        <aside className="flex w-full shrink-0 flex-col gap-5 overflow-y-auto border-t border-white/10 px-4 py-4 text-sm lg:w-[340px] lg:border-l lg:border-t-0 lg:px-5">
+          <section>
+            <h2 className="text-lg font-semibold text-white">{shortName(m.name)}</h2>
+            {m.tagline && <p className="text-sm text-sky-300">{m.tagline}</p>}
+            <p className="mt-2 text-[13px] leading-relaxed text-slate-300">{m.blurb}</p>
+            {m.notes.map((n) => (
+              <p key={n} className="mt-2 flex gap-2 rounded-md bg-amber-400/10 px-2.5 py-1.5 text-xs leading-snug text-amber-200">
+                <TriangleAlert size={14} className="mt-0.5 shrink-0" /> {n}
+              </p>
             ))}
-          </div>
-          <p className="mt-1 text-xs text-slate-500">Each frame stacks all of a visit's exposures on one detector (several wavelengths inside its range).</p>
-        </Field>
+            {bundle.spectra && !selected && (
+              <button onClick={() => setSelectedId("target")} className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-sky-400/15 px-3 py-1.5 text-xs font-medium text-sky-100 hover:bg-sky-400/25">
+                <Activity size={14} /> Show its spectrum
+              </button>
+            )}
+          </section>
 
-        <Field label="Display">
-          <Segmented
-            value={state.stretch}
-            options={[
-              ["asinh", "Asinh"],
-              ["linear", "Linear"],
-            ]}
-            onChange={(v) => set({ stretch: v as ViewState["stretch"] })}
-          />
-          {isDiff ? (
-            <Slider label="Contrast" value={diffPct} min={95} max={99.99} step={0.01} onChange={setDiffPct} fmt={(v) => `${v.toFixed(2)}%`} />
-          ) : (
-            <>
-              <Slider label="Black" value={lo} min={0} max={50} step={0.5} onChange={(v) => setLo(Math.min(v, hi - 1))} fmt={(v) => `${v}%`} />
-              <Slider label="White" value={hi} min={60} max={100} step={0.1} onChange={(v) => setHi(Math.max(v, lo + 1))} fmt={(v) => `${v.toFixed(1)}%`} />
-              <select
-                className="mt-2 w-full rounded border border-sky-400/20 bg-slate-900 px-2 py-1"
-                value={cmap}
-                onChange={(e) => setCmap(e.target.value as ColormapName)}
-              >
-                {COLORMAPS.map((c) => (
-                  <option key={c}>{c}</option>
-                ))}
-              </select>
-            </>
-          )}
-          <div className="mt-2 flex flex-col gap-1 text-xs">
-            <Check
-              label={m.wise.length ? "Include 2010 WISE frame" : "No 2010 WISE frame in this bundle"}
+          <Section title="View">
+            <div className="grid grid-cols-2 gap-1 rounded-lg bg-white/[0.04] p-1">
+              {(
+                [
+                  ["blink", "Blink", "flip through visits"],
+                  ["diff", "Difference", "see only what changed"],
+                ] as const
+              ).map(([v, l, d]) => (
+                <button
+                  key={v}
+                  onClick={() => set({ mode: v })}
+                  aria-pressed={state.mode === v}
+                  className={`rounded-md px-2 py-2 text-left transition ${state.mode === v ? "bg-sky-400/20 text-white" : "text-slate-400 hover:bg-white/5 hover:text-slate-200"}`}
+                >
+                  <span className="block text-sm font-medium">{l}</span>
+                  <span className="block text-[11px] opacity-80">{d}</span>
+                </button>
+              ))}
+            </div>
+          </Section>
+
+          <Section title="Wavelength" hint="SPHEREx splits the infrared into six detectors. Longer wavelengths see cooler things.">
+            <WavelengthPicker detectors={m.detectors} band={state.band} available={(d) => epochsWithBand(bundle, d).length > 0} onBand={(d) => set({ band: d })} />
+          </Section>
+
+          <Section title="Show">
+            <Toggle
+              label="2010 WISE image"
+              hint={m.wise.length ? "Adds a frame from 15 years earlier, so slow movers jump" : "Not available for this target"}
               checked={state.wise && m.wise.length > 0}
+              disabled={!m.wise.length}
               onChange={(v) => set({ wise: v })}
-              disabled={state.mode === "diff" || !m.wise.length}
             />
-            <Check label={`Gaia DR3 stars, G < ${GAIA_G_LIMIT} (G)`} checked={showGaia} onChange={setShowGaia} />
-            <Check label="Pixel grid (zoom in)" checked={pixelGrid} onChange={setPixelGrid} />
-          </div>
-        </Field>
+            <Toggle label="Gaia star markers" hint={`Where ESA's Gaia catalogue puts stars (G < ${GAIA_G_LIMIT}) on each date`} checked={showGaia} onChange={setShowGaia} />
+            <Toggle label="Smooth pixels" hint="SPHEREx pixels are 6.15″ wide. Smoothing is for display only" checked={smooth} onChange={setSmooth} />
+          </Section>
 
-        <Field label="Target data">
-          <dl className="mono grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
-            <dt className="text-slate-500">RA</dt>
-            <dd>{formatRa(t.pos_now[0])} ({t.pos_now[0].toFixed(5)}°)</dd>
-            <dt className="text-slate-500">Dec</dt>
-            <dd>{formatDec(t.pos_now[1])} ({t.pos_now[1].toFixed(5)}°)</dd>
-            <dt className="text-slate-500">at</dt>
-            <dd>2026.5</dd>
-            <dt className="text-slate-500">motion</dt>
-            <dd>
-              {targetPm.toFixed(2)}″/yr = {(targetPm / m.pixel_scale_arcsec).toFixed(2)} px/yr
-            </dd>
-            <dt className="text-slate-500">2010→26</dt>
-            <dd>{separationArcsec(...t.pos_2010, ...t.pos_now).toFixed(0)}″ moved</dd>
-          </dl>
-          <p className="mt-1 text-[11px] text-slate-500">{t.source}. Parallax ignored.</p>
-        </Field>
+          <details className="group">
+            <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-300">
+              <ChevronRight size={14} className="transition group-open:rotate-90" /> Image settings
+            </summary>
+            <div className="mt-3 space-y-3">
+              <div className="grid grid-cols-2 gap-1 rounded-lg bg-white/[0.04] p-1 text-xs">
+                {(["asinh", "linear"] as const).map((s) => (
+                  <button key={s} onClick={() => set({ stretch: s })} className={`rounded-md py-1.5 ${state.stretch === s ? "bg-white/10 text-white" : "text-slate-400"}`}>
+                    {s === "asinh" ? "Bring out faint stars" : "Linear"}
+                  </button>
+                ))}
+              </div>
+              {isDiff ? (
+                <Slider label="Contrast" value={diffPct} min={95} max={99.99} step={0.01} onChange={setDiffPct} fmt={(v) => `${v.toFixed(2)}%`} />
+              ) : (
+                <>
+                  <Slider label="Black" value={lo} min={0} max={60} step={0.5} onChange={(v) => setLo(Math.min(v, hi - 1))} fmt={(v) => `${v}%`} />
+                  <Slider label="White" value={hi} min={60} max={100} step={0.1} onChange={(v) => setHi(Math.max(v, lo + 1))} fmt={(v) => `${v.toFixed(1)}%`} />
+                  <div className="grid grid-cols-3 gap-1">
+                    {COLORMAPS.map((c) => (
+                      <button
+                        key={c}
+                        onClick={() => setCmap(c)}
+                        className={`rounded-md border px-1 py-1 text-[11px] ${cmap === c ? "border-sky-400 text-white" : "border-white/10 text-slate-400 hover:text-slate-200"}`}
+                      >
+                        <span className="mb-1 block h-1.5 rounded-sm" style={{ background: lutCss(c) }} />
+                        {COLORMAP_LABELS[c]}
+                      </button>
+                    ))}
+                  </div>
+                  <Check label="Pixel grid (raw pixels, zoomed in)" checked={pixelGrid} onChange={setPixelGrid} disabled={smooth} />
+                </>
+              )}
+            </div>
+          </details>
 
-        <footer className="mt-auto space-y-1 text-[11px] leading-snug text-slate-500">
-          <p>{m.provenance.credit}</p>
-          <p>
-            SPHEREx DR1 doi:{m.provenance.dois.spherex_dr1} · QR3 doi:{m.provenance.dois.spherex_qr3}. {m.provenance.wise}. {m.provenance.gaia}.
-          </p>
-          <button className="inline-flex items-center gap-1 text-sky-400 hover:text-sky-300" onClick={() => setShowAbout((a) => !a)}>
-            <Info size={12} /> How these frames were made
-          </button>
-          {showAbout && (
-            <p>
-              {m.provenance.exposures_found} SPHEREx exposures cover this field; {m.exposures.filter((e) => e.used).length} were used. Each was
-              downloaded as a cutout, the zodiacal-light model was subtracted, bad pixels (flag bits {m.provenance.mask_bits.join(", ")}) and
-              saturated pixels were dropped, and the exposure was resampled to a north-up {m.pixel_scale_arcsec}″/px grid. Exposures from the
-              same visit and detector were averaged, weighted by their noise. Baked {m.provenance.baked_utc} by {m.provenance.pipeline}.
+          <details className="group">
+            <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-300">
+              <ChevronRight size={14} className="transition group-open:rotate-90" /> Target data
+            </summary>
+            <dl className="mono mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+              <dt className="text-slate-500">RA</dt>
+              <dd>
+                {formatRa(t.pos_now[0])} <span className="text-slate-500">({t.pos_now[0].toFixed(5)}°)</span>
+              </dd>
+              <dt className="text-slate-500">Dec</dt>
+              <dd>
+                {formatDec(t.pos_now[1])} <span className="text-slate-500">({t.pos_now[1].toFixed(5)}°)</span>
+              </dd>
+              <dt className="text-slate-500">epoch</dt>
+              <dd>2026.5</dd>
+              <dt className="text-slate-500">motion</dt>
+              <dd>
+                {targetPm.toFixed(2)}″/yr = {(targetPm / m.pixel_scale_arcsec).toFixed(2)} px/yr
+              </dd>
+              <dt className="text-slate-500">2010→26</dt>
+              <dd>{separationArcsec(...t.pos_2010, ...t.pos_now).toFixed(0)}″ moved</dd>
+            </dl>
+            <p className="mt-2 text-[11px] text-slate-500">{t.source}. Parallax ignored.</p>
+          </details>
+
+          <details className="group">
+            <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-300">
+              <ChevronRight size={14} className="transition group-open:rotate-90" /> How these images were made
+            </summary>
+            <p className="mt-3 text-xs leading-relaxed text-slate-400">
+              {m.provenance.exposures_found} SPHEREx exposures cover this field; {m.exposures.filter((e) => e.used).length} were used. Each was downloaded as a cutout, the
+              zodiacal-light model was subtracted, bad pixels (flag bits {m.provenance.mask_bits.join(", ")}) and saturated pixels were dropped, and the exposure was resampled
+              to a north-up {m.pixel_scale_arcsec}″/px grid. Exposures from the same visit and detector were averaged, weighted by their noise. Baked {m.provenance.baked_utc} by{" "}
+              {m.provenance.pipeline}.
             </p>
-          )}
-        </footer>
-      </aside>
+          </details>
 
-      {/* sky */}
-      <main className="order-1 flex min-h-[70vh] flex-1 flex-col lg:order-2 lg:min-h-0">
-        <div className="relative min-h-[45vh] flex-1">
-        <SkyCanvas
-          bundle={bundle}
-          draw={draw}
-          step={step}
-          diffMjds={diffYears ? [diffYears[0], diffYears[1]] : undefined}
-          showGaia={showGaia}
-          handleRef={canvasRef}
-          onHover={setHover}
-          valueAt={valueAt}
-          onPick={onPick}
-          selected={selected}
-          marks={motion?.pts ?? []}
-        />
-        {tourIdx !== null && <Tour steps={tourSteps} index={tourIdx} onIndex={goTour} onClose={() => goTour(null)} />}
-        {pickHint && (
-          <button onClick={() => setPickHint(null)} className="panel absolute left-1/2 top-12 max-w-md -translate-x-1/2 rounded px-3 py-2 text-xs text-slate-300">
-            {pickHint}
-          </button>
-        )}
-
-        <div className="pointer-events-none absolute left-3 top-3 flex flex-col gap-1">
-          <span className="panel rounded px-2 py-1 mono text-xs text-sky-200">
-            {isDiff
-              ? `Visit ${state.t2 + 1} − Visit ${state.t1 + 1}`
-              : step
-                ? `${step.label} · ${step.sublabel}`
-                : "No frames for this detector"}
-          </span>
-          {shownYear !== null && step?.kind === "wise" && (
-            <span className="panel rounded px-2 py-1 text-xs text-amber-200">Different telescope (WISE, 2010): compare positions, not brightness.</span>
-          )}
-        </div>
-        {!isDiff && step?.kind === "wise" ? (
-          <span className="panel absolute right-3 top-3 rounded px-2 py-1 text-xs font-medium text-amber-300" title={m.provenance.wise}>
-            AllWISE 2010 (IRSA)
-          </span>
-        ) : (
-          <span className="panel absolute right-3 top-3 rounded px-2 py-1 text-xs font-medium text-emerald-300" title={m.provenance.collections.join(", ")}>
-            {m.provenance.label}
-          </span>
-        )}
-        {hover && (
-          <span className="panel pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded px-2 py-1 mono text-xs">
-            {formatHover(hover)} · {hover.value === null ? "no data" : `${hover.value.toFixed(3)} ${step?.kind === "wise" && !isDiff ? "DN" : "MJy/sr"}`}
-          </span>
-        )}
-
-        {/* timeline */}
-        {state.mode === "blink" && (
-          <div className="panel absolute bottom-12 left-1/2 flex max-w-[95%] -translate-x-1/2 items-center gap-2 overflow-x-auto rounded px-2 py-1.5 lg:bottom-3">
-            <IconBtn title="Previous (←)" onClick={() => (setPlaying(false), setStepIdx((i) => (i - 1 + steps.length) % Math.max(1, steps.length)))}>
-              <SkipBack size={14} />
-            </IconBtn>
-            <IconBtn title="Play / pause (Space)" onClick={() => setPlaying((p) => !p)}>
-              {playing ? <Pause size={14} /> : <Play size={14} />}
-            </IconBtn>
-            <IconBtn title="Next (→)" onClick={() => (setPlaying(false), setStepIdx((i) => (i + 1) % Math.max(1, steps.length)))}>
-              <SkipForward size={14} />
-            </IconBtn>
-            {steps.map((s, i) => (
-              <button
-                key={s.layer}
-                onClick={() => (setPlaying(false), setStepIdx(i))}
-                className={`whitespace-nowrap rounded px-2 py-0.5 mono text-xs ${
-                  i === stepIdx % steps.length ? "bg-sky-400/20 text-sky-100" : "text-slate-400 hover:text-slate-200"
-                } ${s.kind === "wise" ? "text-amber-300" : ""}`}
-              >
-                {s.kind === "wise" ? "2010" : `V${s.epoch + 1}`}
-              </button>
-            ))}
-            <label className="flex items-center gap-1 text-xs text-slate-400">
-              <input type="range" min={0.5} max={8} step={0.5} value={fps} onChange={(e) => setFps(Number(e.target.value))} className="w-20" />
-              <span className="mono w-12">{fps} fps</span>
-            </label>
-            <IconBtn title="Reset view (R)" onClick={() => canvasRef.current?.resetView()}>
-              <RotateCcw size={14} />
-            </IconBtn>
-          </div>
-        )}
-        </div>
-
-        {selected && bundle.spectra && (
-          <div className="h-[46%] min-h-[260px] shrink-0 border-t border-sky-400/20">
-            <SpectrumPanel
-              spectra={bundle.spectra}
-              source={selected}
-              epochs={m.epochs}
-              detectors={m.detectors}
-              band={state.band}
-              tab={tab}
-              onTab={setTab}
-              onClose={() => setSelectedId(null)}
-            >
-              <MotionBar
-                expectedPx={motion?.expectedPx ?? 0}
-                measuring={measure}
-                onMeasure={() => setMeasure((x) => !x)}
-                fit={motion?.fit ?? null}
-                n={motion?.pts.length ?? 0}
-                gaia={{ east: selected.pmra / 1000, north: selected.pmdec / 1000 }}
-                frames={steps.length}
-              />
-            </SpectrumPanel>
-          </div>
-        )}
-      </main>
+          <footer className="mt-auto space-y-1 border-t border-white/10 pt-3 text-[11px] leading-snug text-slate-500">
+            <p>{m.provenance.credit}</p>
+            <p>
+              SPHEREx DR1 doi:{m.provenance.dois.spherex_dr1} · QR3 doi:{m.provenance.dois.spherex_qr3}. {m.provenance.wise}. {m.provenance.gaia}.
+            </p>
+          </footer>
+        </aside>
+      </div>
     </div>
   );
+}
+
+function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">{title}</h3>
+      {children}
+      {hint && <p className="mt-1.5 text-[11px] leading-snug text-slate-500">{hint}</p>}
+    </section>
+  );
+}
+
+function Toggle({ label, hint, checked, onChange, disabled }: { label: string; hint?: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  return (
+    <label className={`flex cursor-pointer items-start gap-3 rounded-md px-1 py-1.5 hover:bg-white/[0.03] ${disabled ? "cursor-not-allowed opacity-40" : ""}`}>
+      <span className="relative mt-0.5 inline-flex shrink-0">
+        <input type="checkbox" className="peer sr-only" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+        <span className="h-5 w-9 rounded-full bg-white/15 transition peer-checked:bg-sky-400 peer-focus-visible:outline peer-focus-visible:outline-1 peer-focus-visible:outline-sky-300" />
+        <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-4" />
+      </span>
+      <span>
+        <span className="block text-sm text-slate-200">{label}</span>
+        {hint && <span className="block text-[11px] leading-snug text-slate-500">{hint}</span>}
+      </span>
+    </label>
+  );
+}
+
+function OverlayBtn({ active, onClick, title, children }: { active: boolean; onClick: () => void; title: string; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      className={`flex h-8 items-center rounded-md border px-2.5 text-xs backdrop-blur ${active ? "border-sky-400/50 bg-slate-950/80 text-sky-100" : "border-white/10 bg-slate-950/70 text-slate-300 hover:text-white"}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function VisitSelect({ value, epochs, ok, onChange }: { value: number; epochs: Bundle["meta"]["epochs"]; ok: number[]; onChange: (v: number) => void }) {
+  return (
+    <select className="rounded-md border border-white/15 bg-slate-900 px-2 py-1.5 text-sm text-white" value={value} onChange={(e) => onChange(Number(e.target.value))}>
+      {epochs.map((ep, i) => (
+        <option key={i} value={i} disabled={!ok.includes(i)}>
+          Visit {i + 1} · {formatMjdRange(ep.mjd_min, ep.mjd_max)}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function lutCss(name: ColormapName): string {
+  const lut = buildLut(name);
+  const stops = [0, 64, 128, 192, 255].map((i) => `rgb(${lut[i * 4]},${lut[i * 4 + 1]},${lut[i * 4 + 2]})`);
+  return `linear-gradient(90deg, ${stops.join(",")})`;
 }
 
 function MotionBar(p: {
@@ -748,27 +867,6 @@ function Centered({ children }: { children: React.ReactNode }) {
   return <div className="flex h-full items-center justify-center p-6 text-center text-sm text-slate-400">{children}</div>;
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <section>
-      <h2 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">{label}</h2>
-      {children}
-    </section>
-  );
-}
-
-function Segmented({ value, options, onChange }: { value: string; options: [string, string][]; onChange: (v: string) => void }) {
-  return (
-    <div className="grid grid-flow-col gap-1 rounded border border-sky-400/20 p-0.5">
-      {options.map(([v, l]) => (
-        <button key={v} onClick={() => onChange(v)} className={`rounded py-1 text-xs ${value === v ? "bg-sky-400/20 text-sky-100" : "text-slate-400 hover:text-slate-200"}`}>
-          {l}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 function Slider(p: { label: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void; fmt: (v: number) => string }) {
   return (
     <label className="mt-2 flex items-center gap-2 text-xs text-slate-400">
@@ -788,10 +886,3 @@ function Check({ label, checked, onChange, disabled }: { label: string; checked:
   );
 }
 
-function IconBtn({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button title={title} aria-label={title} onClick={onClick} className="rounded p-1 text-slate-300 hover:bg-sky-400/10">
-      {children}
-    </button>
-  );
-}

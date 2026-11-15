@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 class Target:
     id: str
     name: str
+    tagline: str
     blurb: str
     fov_arcmin: float
     default_mode: str  # "blink" | "diff"
@@ -30,6 +31,7 @@ TARGETS: dict[str, Target] = {
         Target(
             id="barnard",
             name="Barnard's Star",
+            tagline="The fastest star in the sky",
             blurb="The fastest-moving star in the sky: 10.4″ per year. Between SPHEREx visits it steps "
             "about 1–2 pixels; against the 2010 WISE image it has leapt almost 3 arcminutes.",
             fov_arcmin=8.0,
@@ -41,6 +43,7 @@ TARGETS: dict[str, Target] = {
         Target(
             id="eps-ind-b",
             name="Epsilon Indi Ba+Bb",
+            tagline="Twin brown dwarfs: water and methane",
             blurb="A pair of brown dwarfs 12 light-years away, 0.7″ apart — one blended source to SPHEREx. "
             "It moves 4.7″ per year, so the difference of two visits shows a faint ± pair.",
             fov_arcmin=5.0,
@@ -51,6 +54,7 @@ TARGETS: dict[str, Target] = {
         Target(
             id="nep-lpv",
             name="Pulsating red giant (Gaia DR3 2160548942811758720)",
+            tagline="A giant star that swells and fades",
             blurb="A long-period variable (Gaia: ~372-day period) next to the north ecliptic pole, where "
             "SPHEREx looks every day. Frames here are two-month bins of 480 exposures sampled from 17,000.",
             fov_arcmin=5.0,
@@ -63,6 +67,7 @@ TARGETS: dict[str, Target] = {
         Target(
             id="rw-aur",
             name="RW Aurigae",
+            tagline="A young star in a dusty disc",
             blurb="A young star still surrounded by a dusty disc; it has dimmed and brightened in the "
             "infrared for years.",
             fov_arcmin=5.0,
@@ -75,6 +80,7 @@ TARGETS: dict[str, Target] = {
         Target(
             id="wise-0855",
             name="WISE 0855−0714",
+            tagline="Coldest brown dwarf, hidden by a neighbour",
             blurb="The coldest known brown dwarf (about −20 °C). Too faint for one SPHEREx exposure; "
             "only a stack of the longest-wavelength exposures can show it.",
             fov_arcmin=5.0,

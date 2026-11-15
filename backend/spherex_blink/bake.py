@@ -35,7 +35,7 @@ def write_index(out_root: Path = OUT_ROOT) -> list[dict]:
     found = []
     for meta_path in out_root.glob("*/meta.json"):
         m = json.loads(meta_path.read_text())
-        found.append({"id": m["id"], "name": m["name"], "status": m["status"]})
+        found.append({"id": m["id"], "name": m["name"], "tagline": m.get("tagline", ""), "status": m["status"]})
     order = {k: i for i, k in enumerate(TARGET_ORDER)}
     found.sort(key=lambda e: order.get(e["id"], 99))
     out_root.mkdir(parents=True, exist_ok=True)
@@ -43,7 +43,7 @@ def write_index(out_root: Path = OUT_ROOT) -> list[dict]:
     return found
 
 
-TEXT_FIELDS = ("name", "blurb", "notes", "status", "default_mode", "default_band")
+TEXT_FIELDS = ("name", "tagline", "blurb", "notes", "status", "default_mode", "default_band")
 
 
 def retext(target_id: str, out_root: Path = OUT_ROOT) -> bool:
@@ -300,6 +300,7 @@ def bake(target_id: str, client: httpx.Client | None = None, out_root: Path = OU
         meta = {
             "id": t.id,
             "name": t.name,
+            "tagline": t.tagline,
             "blurb": t.blurb,
             "notes": t.notes,
             "status": t.status,

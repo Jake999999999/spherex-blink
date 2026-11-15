@@ -107,3 +107,19 @@ describe("ticks", () => {
     expect(lo).toBeLessThan(5);
   });
 });
+
+import { fillSaturated } from "../src/lib/sequence";
+
+test("fillSaturated fills a star's NaN core but not a field-edge gap", () => {
+  const w = 21;
+  const h = 21;
+  const p = star(w, h, 10, 10, 1.5, 1000, 1);
+  p[10 * w + 10] = NaN;
+  p[10 * w + 11] = NaN;
+  for (let y = 0; y < h; y++) p[y * w + 0] = NaN; // empty left column next to faint sky
+  const f = fillSaturated(p, w, h);
+  expect(f[10 * w + 10]).toBeGreaterThan(500);
+  expect(f[10 * w + 11]).toBeGreaterThan(500);
+  expect(Number.isNaN(f[3 * w + 0])).toBe(true);
+  expect(Number.isNaN(p[10 * w + 10])).toBe(true); // original untouched
+});

@@ -242,7 +242,7 @@ function drawOverlay(
   // field border
   const [x0, y0] = toScreen(-0.5, -0.5);
   const [x1, y1] = toScreen(b.width - 0.5, b.height - 0.5);
-  ctx.strokeStyle = "rgba(56,189,248,0.25)";
+  ctx.strokeStyle = "rgba(148,163,184,0.18)";
   ctx.lineWidth = 1;
   ctx.strokeRect(x0, y1, x1 - x0, y0 - y1);
 
@@ -250,7 +250,11 @@ function drawOverlay(
 
   if (showGaia && years.length) {
     const yr = years[years.length - 1];
-    ctx.strokeStyle = "rgba(74,222,128,0.6)";
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x0, y1, x1 - x0, y0 - y1); // only inside the image
+    ctx.clip();
+    ctx.strokeStyle = "rgba(134,239,172,0.38)";
     ctx.lineWidth = 1;
     for (const s of b.gaia.stars) {
       if (s.g === null || s.g > GAIA_G_LIMIT) continue;
@@ -263,6 +267,7 @@ function drawOverlay(
       ctx.arc(sx, sy, r, 0, Math.PI * 2);
       ctx.stroke();
     }
+    ctx.restore();
   }
 
   // target track 2010 -> now, and the target's position at each shown date
