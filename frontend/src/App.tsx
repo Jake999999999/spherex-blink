@@ -655,9 +655,9 @@ export default function App() {
 
   const exportSpectrum = useMemo(() => {
     if (!bundle) return null;
-    if (isColour && mapOverlay?.spectrum?.wl?.length) {
+    if (isColour && mapPoint && mapOverlay?.spectrum?.wl?.length) {
       return {
-        title: `Map point ${formatRa(mapPoint!.ra)} ${formatDec(mapPoint!.dec)}`,
+        title: `Map point ${formatRa(mapPoint.ra)} ${formatDec(mapPoint.dec)}`,
         points: mapOverlay.spectrum.wl
           .map((wl, i) => ({
             i,
