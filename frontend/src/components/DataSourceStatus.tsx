@@ -19,7 +19,14 @@ const BROWSER_CHECKS: { id: string; label: string; urls: () => string[] }[] = [
   { id: "aws_s3", label: "AWS S3 (SPHEREx)", urls: () => ["https://nasa-irsa-spherex.s3.amazonaws.com/?list-type=2&max-keys=1"] },
   { id: "esa_gaia", label: "Gaia DR3 (TAP)", urls: () => ["https://gea.esac.esa.int/tap-server/tap/availability", "https://gaia.ari.uni-heidelberg.de/tap/availability"] },
   { id: "vizier_tap", label: "VizieR TAP (Mirror)", urls: () => ["https://tapvizier.cds.unistra.fr/TAPVizieR/tap/availability"] },
-  { id: "aladin_hips", label: "Aladin HiPS (CDS)", urls: () => ["https://alasky.cds.unistra.fr/AllWISE/color/properties"] },
+  {
+    id: "aladin_hips",
+    label: "Aladin HiPS",
+    urls: () => [
+      "https://hips.china-vo.org/m/CDS_P_allWISE_color/properties",
+      "https://casda.csiro.au/hips/2MASS/Color/properties",
+    ],
+  },
   {
     id: "cds_sesame",
     label: "CDS Sesame (Names)",

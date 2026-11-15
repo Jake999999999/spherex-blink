@@ -45,9 +45,9 @@ const ALADIN_SCRIPT_URLS = [
   "https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js",
 ];
 const SURVEYS = [
-  { id: "P/allWISE/color", label: "AllWISE" },
-  { id: "P/2MASS/color", label: "2MASS" },
-  { id: "P/DSS2/color", label: "DSS2" },
+  { id: "https://hips.china-vo.org/m/CDS_P_allWISE_color", label: "AllWISE" },
+  { id: "https://casda.csiro.au/hips/2MASS/Color", label: "2MASS" },
+  { id: "https://stpubdata.s3.us-east-1.amazonaws.com/mast/skybackgrounds/DSSColor", label: "DSS2" },
 ] as const;
 
 let aladinLoader: Promise<AladinGlobal> | null = null;
@@ -116,15 +116,21 @@ async function fetchGaiaContextStars(ra: number, dec: number, radiusDeg: number,
 }
 
 async function hipsTilesAvailable(): Promise<boolean> {
-  try {
-    const ac = new AbortController();
-    const timer = window.setTimeout(() => ac.abort(), 3500);
-    const res = await fetch("https://alasky.cds.unistra.fr/AllWISE/color/properties", { signal: ac.signal });
-    window.clearTimeout(timer);
-    return res.ok;
-  } catch {
-    return false;
+  for (const url of [
+    "https://hips.china-vo.org/m/CDS_P_allWISE_color/properties",
+    "https://casda.csiro.au/hips/2MASS/Color/properties",
+  ]) {
+    try {
+      const ac = new AbortController();
+      const timer = window.setTimeout(() => ac.abort(), 3500);
+      const res = await fetch(url, { signal: ac.signal });
+      window.clearTimeout(timer);
+      if (res.ok) return true;
+    } catch {
+      // try next mirror
+    }
   }
+  return false;
 }
 
 interface FinderStar {
@@ -268,7 +274,7 @@ interface Props {
 
 export function SkyContextAladin({ wcs, shape, gaiaStars, streak }: Props) {
   const [open, setOpen] = useState(false);
-  const [survey, setSurvey] = useState<(typeof SURVEYS)[number]["id"]>("P/allWISE/color");
+  const [survey, setSurvey] = useState<(typeof SURVEYS)[number]["id"]>(SURVEYS[0].id);
   const [showGaiaCatalog, setShowGaiaCatalog] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
