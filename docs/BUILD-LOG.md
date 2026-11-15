@@ -98,13 +98,32 @@ The owner found smoothing looked poor in Colour mode and wanted the 102-colour v
 - **Saturation faked colours:** the three bright targets came out deep red, only because their short-wavelength light was missing. Windows now need real data in half their channels, and blown-out cores are painted white with a note.
 - **Hints were checked before being written.** The planned "water makes the giant stand out" and "warm dust makes RW Aur red" didn't survive the measurements, so those hints say what is actually visible. The brown dwarfs measure as pink (R 0.69, G 0.09, B 0.22), not magenta, and the text now says pink.
 
+## 11. Making it a science tool (S1–S4)
+
+- **S1, masks:** 1,901 cached cutouts were counted bit by bit. TRANSIENT, DICHROIC, PERSIST, CROSSTALK, the GHOST bits, STREAK, BLOOM, SNOWBALL and HALO were added to the masked bits (about 5% of pixels in all), because each can fake a one-off brightening.
+- **S2, honest differences:** a plain difference of two visits leaves light and dark leftovers on every star, because SPHEREx sees each star at a slightly different wavelength each time. Each visit is now compared against the all-visit map at the same wavelengths, with the sky gradient removed. Leftovers dropped from 12.4% to 6.6% (Epsilon Indi B) and from 15.1% to 7.3% (WISE 0855). The same exposures give our own 6.15″ 102-channel map, twice as sharp as the archive's.
+- **S3, error bars:** the scatter of repeated measurements was compared with the pipeline's errors, and per-detector scale factors (1.0–2.4) are applied to every exported error.
+- **S4, injection and recovery:** fake stars were added to real frames and measured back, giving detection limits of 0.06–0.5 mJy depending on the field. Fake movers showed that SPHEREx alone can't measure slow motions reliably in crowded fields, so the motion tool warns when the 2010 WISE frame isn't there to anchor it.
+
+## 12. Any spot in the sky, with a local server
+
+A small standard-library server (loopback only, architect-reviewed) runs the same pipeline for any name or coordinates. Two fixes came from live testing: ESA's Gaia service stopped answering (IRSA's copy of Gaia DR3 is now the fallback), and a quick look's sampled visits got regrouped (the bake now keeps exactly the visits it sampled). R Draconis came back as a built-in target, and contamination flags became a per-pixel overlay.
+
+## 13. Sixteen years of motion: NEOWISE
+
+WISE kept imaging the sky every six months after 2010. A median of up to 8 single exposures per visit gives about 20 extra frames from 2014–2024, so Barnard's Star now crosses the field smoothly from 2010 to 2026. A few IRSA 503s cost 3 of 252 exposures for one target. Re-running the bake picks them up from the cache.
+
+## 14. Any spot, with no server at all
+
+The public site can't run a server, and NASA's search services can't be called from a web page. NASA's S3 copy of SPHEREx can, so the browser now does the work itself: the 102-colour map in seconds, and the time series from IRSA's exposure list saved and dropped by the user. The first real test turned up something the synthetic tests couldn't: the full level-2 files store FLAGS RICE-compressed. A RICE decoder now reads just the needed rows, and the synthetic fixtures include astropy-compressed FLAGS. A second real file had an `l2b_retry` folder name that the safety pattern refused; the pattern now allows exactly that. The strongest check: dropping the 258 cutouts the WISE 0855 bake used reproduces the bake, every pixel within 0.002 MJy/sr. Section 3.6d of HOW-IT-WORKS has the details.
+
 ## Testing, in numbers
 
-- Pipeline: 34 pytest tests (including the cube reader against a fake Range server and the HEALPix tile lookup against IRSA's answers) (resampling accuracy, stacking, flag handling, photometry within 2%, ring photometry with a saturated core, retry logic, catalogue parsing, Gaia propagation to 0.5″).
-- App: 55 bun tests (including colour maths, honest-colour rules, map spectra, sonification and chart descriptions) (sky coordinates, stretch maths, URL state, bundle format, centroid and motion fit, spectra helpers, saturated fill, tour steps and card placement), plus TypeScript type-checking and a production build.
+- Pipeline: 50 pytest tests (including the cube reader against a fake Range server and the HEALPix tile lookup against IRSA's answers) (resampling accuracy, stacking, flag handling, photometry within 2%, ring photometry with a saturated core, retry logic, catalogue parsing, Gaia propagation to 0.5″).
+- App: 78 bun tests (now also the browser-mode FITS reader, RICE decoding, TAN-SIP and HPX projections against astropy, HEALPix tiles, exposure-list parsing and URL safety, and the browser builder against the Python pipeline) (including colour maths, honest-colour rules, map spectra, sonification and chart descriptions) (sky coordinates, stretch maths, URL state, bundle format, centroid and motion fit, spectra helpers, saturated fill, tour steps and card placement), plus TypeScript type-checking and a production build.
 - Browser checks after each milestone, on real data.
 
 ## Open decisions
 
 - Keep or drop RW Aurigae (weak evidence of change) and WISE 0855 (not detected); a clean alternative is Teegarden's Star.
-- M3 "any coordinate" live mode and M4 polish (image/video export, sonification) are not built.
+- Live mode is built (local server, and browser-only without one). Still open: PSF photometry (S6), SAMP once hosted, an accessibility audit, and the hosting itself.

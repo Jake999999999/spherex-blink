@@ -8,7 +8,9 @@ A NASA Space Apps Challenge 2026 entry. Not a NASA product.
 
 ## What you can do
 
-- **Any spot in the sky**: type a name (“R Draconis”) or coordinates (`08h55m10.831s -07d14m42.53s`, `133.795 -7.245`), choose the field of view (2–15′), and the app fetches the SPHEREx exposures, the 2010 WISE images and Gaia stars for that patch from NASA's and ESA's archives, processes them and shows them like a little video. A link with `?ra=…&dec=…&fov=…` opens the same view (embeddable). This needs the small local server below.
+- **Any spot in the sky**: type a name (“R Draconis”) or coordinates (`08h55m10.831s -07d14m42.53s`, `133.795 -7.245`), choose the field of view (2–15′), and the app fetches the SPHEREx exposures, the 2010 WISE images and Gaia stars for that patch from NASA's and ESA's archives, processes them and shows them like a little video. A link with `?ra=…&dec=…&fov=…` opens the same view (embeddable). It works two ways:
+  - **In your browser, with nothing to install** (this is what the public site does): the 102-colour map comes straight from NASA's public copy of SPHEREx on Amazon S3, in seconds. To blink the spot, the app gives you a link to IRSA's list of exposures there; save that page and drop it on the app (or paste it, or drop SPHEREx FITS files you downloaded from IRSA). The app then reads just the field's rows of each exposure from S3 and masks, sky-subtracts, aligns and stacks them in your browser (a quick look is about 50–80 MB and under a minute on a good connection).
+  - **With the small local server** (below), which also adds the WISE/NEOWISE frames, Gaia stars, per-star spectra and light curves, and wavelength-matched differences.
 
 - **Blink** between the SPHEREx visits of a patch of sky, plus WISE images from 2010 and NEOWISE images from about every six months between 2014 and 2024: up to ~25 frames over 16 years, so nearby stars glide across the field like a little video.
 - **Difference**: subtract an older visit from a newer one. Stars that didn't change disappear; a moving object leaves an amber/cyan pair, a brightening star turns amber.
