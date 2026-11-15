@@ -10,6 +10,7 @@ a few KB each).
 
 from __future__ import annotations
 
+import base64
 import glob
 import json
 import random
@@ -114,10 +115,21 @@ def stack_case(tmp: Path) -> dict:
             if name != "IMAGE":
                 for k in ("CTYPE1", "CTYPE2", "CRVAL1", "CRVAL2", "CRPIX1", "CRPIX2", "PC1_1", "PC1_2", "PC2_1", "PC2_2", "CDELT1", "CDELT2"):
                     h2[k] = hdr[k]
-            hl.append(fits.ImageHDU(data[name], header=h2, name=name))
+            if name == "FLAGS" and i % 2 == 1:
+                # like the real level-2 files: FLAGS RICE-compressed, one row per tile
+                hl.append(fits.CompImageHDU(data[name], header=h2, name=name, compression_type="RICE_1", tile_shape=(1, nx)))
+            else:
+                hl.append(fits.ImageHDU(data[name], header=h2, name=name))
         p = tmp / f"synth{i}.fits"
         fits.HDUList(hl).writeto(p, overwrite=True)
-        exps.append({"cards": {name: cards(fits.getheader(p, name)) for name in ("IMAGE", "FLAGS", "VARIANCE", "ZODI")}, "primary": cards(fits.getheader(p, 0))})
+        raw = p.read_bytes()
+        entry = {"cards": {name: cards(fits.getheader(p, name)) for name in ("IMAGE", "FLAGS", "VARIANCE", "ZODI")}, "primary": cards(fits.getheader(p, 0)), "raw": {}}
+        with fits.open(p, disable_image_compression=True) as hh:
+            for k, hdu in enumerate(hh):
+                if hdu.name == "FLAGS" and hdu.header.get("ZIMAGE"):
+                    info = hh.fileinfo(k)
+                    entry["raw"]["FLAGS"] = base64.b64encode(raw[info["hdrLoc"] : info["datLoc"] + info["datSpan"]]).decode()
+        exps.append(entry)
     cells = []
     for v in (0, 1):
         ims, vs, flg = [], [], []

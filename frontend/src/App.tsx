@@ -18,7 +18,7 @@ import { blinkSteps, epochsWithBand, layerOf, matchedLayer, stepPlane, type Step
 import { diffLimit, levelsFor, subtract } from "./lib/stretch";
 import { DEFAULT_STATE, parseLive, parseState, serializeState, type ViewState } from "./lib/urlState";
 import { LiveSearch, type LiveResult } from "./components/LiveSearch";
-import { liveBase } from "./lib/live";
+import { liveBase, FORCE_BROWSER } from "./lib/live";
 import { COLORMAPS, COLORMAP_LABELS, buildLut, type ColormapName } from "./gl/colormaps";
 import { formatMjdMonth, formatMjdRange, mjdToYear, propagate } from "./lib/astro";
 import { formatDec, formatRa, pixelToWorld, separationArcsec, worldToPixel } from "./lib/wcs";
@@ -183,6 +183,7 @@ export default function App() {
       p.set("fov", String(lv.fov));
       q = p.toString() + (SILENT ? "&silent" : "");
     }
+    if (FORCE_BROWSER) q += "&browser";
     if (q !== window.location.search.slice(1)) window.history.replaceState(null, "", `?${q}`);
   }, [state, bundle]);
 

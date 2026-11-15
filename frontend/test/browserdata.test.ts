@@ -109,15 +109,20 @@ function synth(i: number, ny: number, nx: number) {
   return { IMAGE: img, FLAGS: fl, VARIANCE: vr, ZODI: zd };
 }
 
-function fitsFile(primary: string[], hdus: [string[], Float32Array | Int32Array][], name: string): File {
-  const parts: Uint8Array[] = [];
+function fitsFile(primary: string[], hdus: ([string[], Float32Array | Int32Array] | Uint8Array<ArrayBuffer>)[], name: string): File {
+  const parts: Uint8Array<ArrayBuffer>[] = [];
   const hdr = (cards: string[]) => {
     let s = cards.map((c) => c.padEnd(80)).join("");
     if (!cards.some((c) => c.trimEnd() === "END")) s += "END".padEnd(80); // astropy's cards already end with END
-    return new TextEncoder().encode(s.padEnd(Math.ceil(s.length / 2880) * 2880));
+    return new TextEncoder().encode(s.padEnd(Math.ceil(s.length / 2880) * 2880)) as Uint8Array<ArrayBuffer>;
   };
   parts.push(hdr(primary));
-  for (const [cards, data] of hdus) {
+  for (const h of hdus) {
+    if (h instanceof Uint8Array) {
+      parts.push(h); // a complete HDU written by astropy (e.g. RICE-compressed FLAGS)
+      continue;
+    }
+    const [cards, data] = h;
     parts.push(hdr(cards));
     const b = new DataView(new ArrayBuffer(Math.ceil((data.length * 4) / 2880) * 2880));
     data.forEach((v, k) => (data instanceof Float32Array ? b.setFloat32(k * 4, v, false) : b.setInt32(k * 4, v, false)));
@@ -132,7 +137,12 @@ test("browser builder matches the Python pipeline on synthetic exposures", async
   const files = fx2.exposures.map((e, i) => {
     const d = synth(i, ny, nx);
     const names = ["IMAGE", "FLAGS", "VARIANCE", "ZODI"] as const;
-    return fitsFile(e.primary, names.map((nm) => [e.cards[nm], d[nm]] as [string[], Float32Array | Int32Array]), `synth${i}.fits`);
+    const raw = (e as { raw?: Record<string, string> }).raw ?? {};
+    return fitsFile(
+      e.primary,
+      names.map((nm) => (raw[nm] ? (Uint8Array.from(atob(raw[nm]), (c) => c.charCodeAt(0)) as Uint8Array<ArrayBuffer>) : ([e.cards[nm], d[nm]] as [string[], Float32Array | Int32Array]))),
+      `synth${i}.fits`,
+    );
   });
   const out = await buildField({ id: "t", name: "t", ra: fx2.ra, dec: fx2.dec, fov: fx2.fov, files, withCube: false }, () => {});
   const meta = JSON.parse(out["meta.json"] as string);
@@ -158,6 +168,22 @@ test("browser builder matches the Python pipeline on synthetic exposures", async
     }
   });
   expect(compared).toBeGreaterThan(nn); // most pixels of both visits
+  expect(fx2.exposures.filter((e) => (e as { raw?: Record<string, string> }).raw?.FLAGS).length).toBe(2); // RICE path covered
+});
+
+test("RICE_1 decoding matches astropy's compressed FLAGS", async () => {
+  const e = stackFx.exposures[1] as { raw: Record<string, string> };
+  const [ny, nx] = stackFx.shape;
+  const bytes = Uint8Array.from(atob(e.raw.FLAGS), (c) => c.charCodeAt(0));
+  const prim = header([card("SIMPLE", true), card("BITPIX", 8), card("NAXIS", 0), card("EXTEND", true)]);
+  const all = new Uint8Array(prim.length + bytes.length);
+  all.set(prim);
+  all.set(bytes, prim.length);
+  const src = bufferSource(all.buffer);
+  const hdus = await walkHdus(src);
+  const w = await readImageWindow(src, hdus[1], 5, 60, 10, 50);
+  const want = synth(1, ny, nx).FLAGS;
+  for (let r = 0; r < w.ny; r++) for (let c = 0; c < w.nx; c++) expect(w.data[r * w.nx + c]).toBe(want[(10 + r) * nx + 5 + c]);
 });
 
 describe("exposure lists", () => {
@@ -179,6 +205,8 @@ describe("exposure lists", () => {
   test("pasted IRSA links work; anything else is refused", () => {
     expect(parseExposureList(`https://irsa.ipac.caltech.edu/ibe/data/spherex/${key}\nhttps://evil.example/a.fits`).refs.map((r) => r.key)).toEqual([key]);
     expect(safeKey(key)).toBe(key);
+    const retry = "dr1/level2/2025W46_1A/l2b_retry-v27-2026-207/6/level2_2025W46_1A_0090_1D6_spx_l2b_retry-v27-2026-207.fits";
+    expect(safeKey(retry)).toBe(retry); // IRSA re-runs live in l2b_retry-* folders
     for (const bad of ["dr1/level2/../../x.fits", "dr1/level2/2025W19_1B/l2b-v27-2026-197/3/level2_%2e.fits", `${key}?x=1`, "other/bucket.fits"]) expect(safeKey(bad)).toBeNull();
   });
   test("visit sampling keeps every detector of each chosen visit", () => {

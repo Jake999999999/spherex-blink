@@ -5,7 +5,7 @@
 import { FitsError, type ByteSource } from "./fitsread";
 
 export const S3_BASE = "https://nasa-irsa-spherex.s3.amazonaws.com/";
-const KEY_RE = /^(dr1|qr2|qr3)\/(level2\/[0-9]{4}W[0-9]{2}_[0-9A-Z]{2}\/l2b-v[0-9]+-[0-9]{4}-[0-9]{3}\/[1-6]\/level2_[0-9A-Za-z_-]+\.fits|hips5_cube\/hips_[0-9]{8}\/Norder5\/Dir[0-9]+\/Npix[0-9]+_cube\.fits)$/;
+const KEY_RE = /^(dr1|qr2|qr3)\/(level2\/[0-9]{4}W[0-9]{2}_[0-9A-Z]{2}\/l2b(?:_retry)?-v[0-9]+-[0-9]{4}-[0-9]{3}\/[1-6]\/level2_[0-9A-Za-z_-]+\.fits|hips5_cube\/hips_[0-9]{8}\/Norder5\/Dir[0-9]+\/Npix[0-9]+_cube\.fits)$/;
 
 export function safeKey(key: string): string | null {
   if (key.length > 300 || key.includes("..") || key.includes("%") || key.includes("//")) return null;

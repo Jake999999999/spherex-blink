@@ -7,6 +7,7 @@ import { irsaSearchUrl, MAX_LIST_BYTES, parseExposureList, sampleByVisit, type E
 import { resolveNameInBrowser, startBrowserBuild, type BuildHandle } from "../lib/browser/client";
 import type { CubeDesc } from "../lib/colour";
 import type { LiveResult } from "./LiveSearch";
+import { claimAutostart } from "../lib/live";
 
 interface Props {
   onReady: (r: LiveResult) => void;
@@ -91,10 +92,8 @@ export function BrowserFetch({ onReady, autostart }: Props) {
     void run({ id: fl.id, name: fl.name, ra, dec, fov: f, withCube: true }, fl, "Reading the 102-colour map from NASA's S3 copy…");
   };
 
-  const autoDone = useRef(false);
   useEffect(() => {
-    if (autostart && !autoDone.current) {
-      autoDone.current = true;
+    if (autostart && claimAutostart()) {
       setFov(Math.min(10, autostart.fov));
       setText(autostart.name || `${autostart.ra.toFixed(5)} ${autostart.dec.toFixed(5)}`);
       fetchMap(autostart.ra, autostart.dec, Math.min(10, autostart.fov), autostart.name ?? "");

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Search, X } from "lucide-react";
 import { looksLikeCoords, parseCoords } from "../lib/coords";
-import { cancelJob, jobStatus, liveAvailable, resolveName, startField, type JobView } from "../lib/live";
+import { cancelJob, claimAutostart, FORCE_BROWSER, jobStatus, liveAvailable, resolveName, startField, type JobView } from "../lib/live";
 import { formatDec, formatRa } from "../lib/wcs";
 import { BrowserFetch } from "./BrowserFetch";
 
@@ -36,7 +36,8 @@ export function LiveSearch({ onReady, autostart }: Props) {
   const pending = useRef<{ name: string; ra: number; dec: number; fov: number } | null>(null);
 
   useEffect(() => {
-    liveAvailable().then(setAvailable);
+    if (FORCE_BROWSER) setAvailable(false);
+    else liveAvailable().then(setAvailable);
   }, []);
 
   const go = async (ra: number, dec: number, f: number, name: string) => {
@@ -52,10 +53,8 @@ export function LiveSearch({ onReady, autostart }: Props) {
   };
 
   // URL autostart, once the server is known to be there
-  const autoDone = useRef(false);
   useEffect(() => {
-    if (autostart && available && !autoDone.current) {
-      autoDone.current = true;
+    if (autostart && available && claimAutostart()) {
       setFov(autostart.fov);
       setText(autostart.name || `${autostart.ra.toFixed(5)} ${autostart.dec.toFixed(5)}`);
       void go(autostart.ra, autostart.dec, autostart.fov, autostart.name ?? "");

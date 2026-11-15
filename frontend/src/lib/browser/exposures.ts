@@ -22,7 +22,7 @@ const decodeXml = (s: string) =>
   );
 
 // an S3 key or an IRSA ibe URL of a level-2 file
-const L2_RE = /(?:ibe\/data\/spherex\/)?((?:dr1|qr2|qr3)\/level2\/[0-9]{4}W[0-9]{2}_[0-9A-Z]{2}\/l2b-v[0-9]+-[0-9]{4}-[0-9]{3}\/[1-6]\/level2_[0-9A-Za-z_-]+\.fits)/g;
+const L2_RE = /(?:ibe\/data\/spherex\/)?((?:dr1|qr2|qr3)\/level2\/[0-9]{4}W[0-9]{2}_[0-9A-Z]{2}\/l2b(?:_retry)?-v[0-9]+-[0-9]{4}-[0-9]{3}\/[1-6]\/level2_[0-9A-Za-z_-]+\.fits)/g;
 
 function detectorOf(key: string): number {
   const m = /\/([1-6])\/level2_/.exec(key);

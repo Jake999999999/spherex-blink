@@ -16,6 +16,13 @@ export interface FieldRequest {
   name?: string;
 }
 
+/** ?browser: use the no-server mode (what the public site does) even when a local server runs. Read once per page. */
+export const FORCE_BROWSER = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("browser");
+
+// The URL autostart runs once per page, even if the search panel is mounted again later.
+let autostarted = false;
+export const claimAutostart = () => (autostarted ? false : (autostarted = true));
+
 const json = async (r: Response) => {
   const body = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(body.error ?? `HTTP ${r.status}`);

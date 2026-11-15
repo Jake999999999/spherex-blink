@@ -4,6 +4,8 @@
 //
 // Input is untrusted (dropped files, remote headers): every size is checked before it is used.
 
+import { riceDecode } from "./rice";
+
 export interface ByteSource {
   /** total size in bytes, if known */
   size: number | null;
@@ -183,7 +185,8 @@ export async function readImageWindow(
   signal?: AbortSignal,
 ): Promise<ImageWindow> {
   const hd = h.header;
-  if (str(hd, "XTENSION") === "BINTABLE" || hd.has("ZIMAGE")) throw new FitsError(`${h.name}: compressed or not an image`);
+  if (hd.get("ZIMAGE") === true) return readCompressedWindow(src, h, x0, x1, y0, y1, plane, signal);
+  if (str(hd, "XTENSION") === "BINTABLE") throw new FitsError(`${h.name}: not an image`);
   const bitpix = num(hd, "BITPIX");
   const bpp = Math.abs(bitpix) / 8;
   const nx = num(hd, "NAXIS1");
@@ -236,6 +239,68 @@ export async function readImageWindow(
       out[r * w + c] = v * bscale + bzero;
     }
   }
+  return { data: out, x0, y0, nx: w, ny: y1 - y0 };
+}
+
+/**
+ * Rows of a tile-compressed image (RICE_1, one row per tile, as in SPHEREx level-2 FLAGS): reads the
+ * rows' descriptors, then the heap bytes of just those rows, and decodes them.
+ */
+async function readCompressedWindow(src: ByteSource, h: Hdu, x0: number, x1: number, y0: number, y1: number, plane: number, signal?: AbortSignal): Promise<ImageWindow> {
+  const hd = h.header;
+  const cmp = str(hd, "ZCMPTYPE")?.trim();
+  if (cmp !== "RICE_1") throw new FitsError(`${h.name}: ${cmp ?? "unknown"} compression not supported`);
+  const nx = num(hd, "ZNAXIS1");
+  const ny = num(hd, "ZNAXIS2");
+  if (num(hd, "ZTILE1", nx) !== nx || num(hd, "ZTILE2", 1) !== 1 || plane !== 0) throw new FitsError(`${h.name}: only row-by-row tiles are supported`);
+  if (num(hd, "NAXIS2") !== ny) throw new FitsError(`${h.name}: tile count doesn't match`);
+  const zbitpix = num(hd, "ZBITPIX");
+  if (zbitpix !== 32 && zbitpix !== 16 && zbitpix !== 8) throw new FitsError(`${h.name}: ZBITPIX ${zbitpix} not supported`);
+  // the first column must be COMPRESSED_DATA as a P/Q descriptor; any other column (e.g. GZIP or
+  // UNCOMPRESSED_DATA fallbacks, ZSCALE per tile) isn't supported
+  if (num(hd, "TFIELDS") !== 1 || (str(hd, "TTYPE1") ?? "").trim().toUpperCase() !== "COMPRESSED_DATA") throw new FitsError(`${h.name}: unsupported compressed layout`);
+  const form = (str(hd, "TFORM1") ?? "").trim().toUpperCase();
+  const q = /^1?Q/.test(form);
+  if (!/^1?[PQ]/.test(form)) throw new FitsError(`${h.name}: bad TFORM1`);
+  const rowLen = num(hd, "NAXIS1");
+  if (rowLen !== (q ? 16 : 8)) throw new FitsError(`${h.name}: bad descriptor size`);
+  let blocksize = 32;
+  let bytepix = zbitpix / 8;
+  for (let i = 1; i <= 4; i++) {
+    const nm = (str(hd, `ZNAME${i}`) ?? "").trim().toUpperCase();
+    if (nm === "BLOCKSIZE") blocksize = num(hd, `ZVAL${i}`);
+    if (nm === "BYTEPIX") bytepix = num(hd, `ZVAL${i}`);
+  }
+  x0 = Math.max(0, Math.floor(x0));
+  y0 = Math.max(0, Math.floor(y0));
+  x1 = Math.min(nx, Math.ceil(x1));
+  y1 = Math.min(ny, Math.ceil(y1));
+  if (x1 <= x0 || y1 <= y0) return { data: new Float64Array(0), x0, y0, nx: 0, ny: 0 };
+  const dv = new DataView(await src.read(h.dataOffset + y0 * rowLen, (y1 - y0) * rowLen, signal));
+  const desc: [number, number][] = [];
+  for (let r = 0; r < y1 - y0; r++) {
+    const o = r * rowLen;
+    desc.push(q ? [Number(dv.getBigInt64(o, false)), Number(dv.getBigInt64(o + 8, false))] : [dv.getInt32(o, false), dv.getInt32(o + 4, false)]);
+  }
+  const theap = num(hd, "THEAP", rowLen * ny);
+  const heapSize = num(hd, "PCOUNT", 0);
+  const lo = Math.min(...desc.map((d) => d[1]));
+  const hi = Math.max(...desc.map((d) => d[1] + d[0]));
+  if (lo < 0 || hi > heapSize || hi - lo > 64 * 1024 * 1024) throw new FitsError(`${h.name}: bad heap pointers`);
+  const heap = new Uint8Array(await src.read(h.dataOffset + theap + lo, hi - lo, signal));
+  const bscale = num(hd, "ZSCALE", num(hd, "BSCALE", 1));
+  const bzero = num(hd, "ZZERO", num(hd, "BZERO", 0));
+  const unsigned32 = zbitpix === 32 && bzero === 2147483648 && bscale === 1;
+  const zblank = hd.get("ZBLANK") ?? hd.get("BLANK");
+  const w = x1 - x0;
+  const out = new Float64Array(w * (y1 - y0));
+  desc.forEach(([n, off], r) => {
+    const row = riceDecode(heap.subarray(off - lo, off - lo + n), nx, bytepix, blocksize);
+    for (let c = 0; c < w; c++) {
+      const v = row[x0 + c];
+      out[r * w + c] = typeof zblank === "number" && v === zblank ? NaN : unsigned32 ? (v ^ 0x80000000) >>> 0 : v * bscale + bzero;
+    }
+  });
   return { data: out, x0, y0, nx: w, ny: y1 - y0 };
 }
 

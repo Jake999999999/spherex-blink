@@ -243,7 +243,12 @@ export async function buildField(req: FieldRequest, onProgress: (p: Progress) =>
   const keep: number[] = [];
   for (let e = 0; e < E; e++) if (cells.slice(e * 6, e * 6 + 6).some((c) => c.n >= MIN_PER_CELL)) keep.push(e);
   const EK = keep.length;
-  if (EK === 0 && !cube) throw new FitsError(usable.length ? "No visit had enough usable exposures on any detector." : "No usable SPHEREx exposures (and the map couldn't be read).");
+  const errCount = new Map<string, number>();
+  for (const x of exposures) if (x.error) errCount.set(x.error, (errCount.get(x.error) ?? 0) + 1);
+  const topErr = [...errCount].sort((a, b) => b[1] - a[1])[0];
+  const why = topErr ? ` Most common problem (${topErr[1]} of ${exposures.length}): ${topErr[0]}` : "";
+  if (EK === 0 && !cube) throw new FitsError((usable.length ? "No visit had enough usable exposures on any detector." : "No usable SPHEREx exposures (and the map couldn't be read).") + why);
+  if (EK === 0 && usable.length) notes.push(`None of the ${usable.length} exposures could be stacked.${why}`);
   const planes = EK * 6 * nn;
   const buf = new Float32Array(planes * 2).fill(NaN);
   const flagPct = new Uint8Array(EK * 6 * nn).fill(255);
