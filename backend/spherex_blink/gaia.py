@@ -9,7 +9,7 @@ import math
 
 import httpx
 
-from .irsa import CACHE_ROOT, META_RETRY, get_with_retry
+from .irsa import CACHE_ROOT, META_RETRY, FetchError, get_with_retry
 
 GAIA_TAP = "https://gea.esac.esa.int/tap-server/tap/sync"
 IRSA_TAP = "https://irsa.ipac.caltech.edu/TAP/sync"
@@ -46,7 +46,9 @@ def propagate(ra: float, dec: float, pmra: float, pmdec: float, from_year: float
 
 def _tap_csv(client: httpx.Client, url: str, adql: str) -> list[dict]:
     params = {"REQUEST": "doQuery", "LANG": "ADQL", "FORMAT": "csv", "QUERY": adql}
-    raw = get_with_retry(client, url, params=params, **META_RETRY)
+    # ESA: two quick tries, then the caller falls back to IRSA's copy of Gaia DR3
+    retry = {"tries": 2, "base_delay": 3.0} if url == GAIA_TAP else META_RETRY
+    raw = get_with_retry(client, url, params=params, **retry)
     return list(csv.DictReader(io.StringIO(raw.decode("utf-8", errors="replace"))))
 
 
@@ -75,6 +77,20 @@ def parse_ipac_table(text: str) -> list[dict]:
 def gator_cone(client: httpx.Client, catalog: str, ra: float, dec: float, radius_arcsec: float, cols: str) -> list[dict]:
     params = {"catalog": catalog, "spatial": "cone", "objstr": f"{ra} {dec}", "radius": str(radius_arcsec),
               "outfmt": "1", "selcols": cols}
+    raw = get_with_retry(client, GATOR, params=params, **META_RETRY)
+    return parse_ipac_table(raw.decode("utf-8", errors="replace"))
+
+
+GAIA_COLS = "source_id,ra,dec,pmra,pmdec,parallax,phot_g_mean_mag"
+
+
+def _gator_gaia(client: httpx.Client, ra: float | None = None, dec: float | None = None, radius_arcsec: float = 0.0, constraint: str | None = None) -> list[dict]:
+    """Gaia DR3 through IRSA (same table as ESA's), used when ESA's TAP service is unreachable."""
+    params = {"catalog": "gaia_dr3_source", "outfmt": "1", "selcols": GAIA_COLS}
+    if constraint:
+        params |= {"spatial": "NONE", "constraints": constraint}
+    else:
+        params |= {"spatial": "cone", "objstr": f"{ra} {dec}", "radius": str(radius_arcsec)}
     raw = get_with_retry(client, GATOR, params=params, **META_RETRY)
     return parse_ipac_table(raw.decode("utf-8", errors="replace"))
 
@@ -111,7 +127,10 @@ def _cached(name: str, fn):
 
 def source(client: httpx.Client, source_id: str) -> dict:
     def q():
-        rows = _tap_csv(client, GAIA_TAP, f"SELECT {COLUMNS} FROM gaiadr3.gaia_source WHERE source_id = {int(source_id)}")
+        try:
+            rows = _tap_csv(client, GAIA_TAP, f"SELECT {COLUMNS} FROM gaiadr3.gaia_source WHERE source_id = {int(source_id)}")
+        except FetchError:
+            rows = _gator_gaia(client, constraint=f"source_id={int(source_id)}")
         if not rows:
             raise LookupError(f"Gaia DR3 {source_id} not found")
         return _star(rows[0])
@@ -126,7 +145,14 @@ def cone(client: httpx.Client, ra: float, dec: float, radius_deg: float, gmax: f
             f"WHERE 1 = CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', {ra}, {dec}, {radius_deg})) "
             f"AND phot_g_mean_mag < {gmax} ORDER BY phot_g_mean_mag"
         )
-        return [_star(r) for r in _tap_csv(client, GAIA_TAP, adql)]
+        try:
+            rows = _tap_csv(client, GAIA_TAP, adql)
+        except FetchError:
+            # ESA's archive was unreachable (2026-11-15); IRSA serves the same Gaia DR3 table
+            rows = [r for r in _gator_gaia(client, ra=ra, dec=dec, radius_arcsec=radius_deg * 3600) if (_num(r.get("phot_g_mean_mag")) or 99) < gmax]
+            rows.sort(key=lambda r: _num(r.get("phot_g_mean_mag")) or 99)
+            rows = rows[:limit]
+        return [_star(r) for r in rows]
 
     return _cached(f"cone_{ra:.5f}_{dec:.5f}_{radius_deg:.4f}_{gmax}", q)
 

@@ -45,6 +45,8 @@ interface Props {
   overlayMjd?: number;
   /** text alternative for screen readers */
   ariaLabel?: string;
+  /** contamination flags to tint: % of exposures flagged per pixel (255 = not covered) */
+  flagPlane?: Uint8Array | null;
 }
 
 export interface MovingSource {
@@ -63,7 +65,7 @@ export interface HoverInfo {
   value: number | null;
 }
 
-export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, onHover, valueAt, onPick, selected, marks, colour, overlayMjd, ariaLabel }: Props) {
+export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, onHover, valueAt, onPick, selected, marks, colour, overlayMjd, ariaLabel, flagPlane }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const glRef = useRef<HTMLCanvasElement>(null);
   const ovRef = useRef<HTMLCanvasElement>(null);
@@ -126,8 +128,8 @@ export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, o
     r.resize(W, H, dpr);
     const v = viewRef.current;
     r.draw({ ...draw, zoom: v.zoom, centerX: v.cx, centerY: v.cy });
-    drawOverlay(ov, W, H, dpr, v, bundle, step, diffMjds, showGaia, selected ?? null, marks ?? [], overlayMjd);
-  }, [draw, bundle, step, diffMjds, showGaia, selected, marks, overlayMjd]);
+    drawOverlay(ov, W, H, dpr, v, bundle, step, diffMjds, showGaia, selected ?? null, marks ?? [], overlayMjd, flagPlane ?? null);
+  }, [draw, bundle, step, diffMjds, showGaia, selected, marks, overlayMjd, flagPlane]);
 
   // colour planes change only when the mix changes
   const uploadedColour = useRef<{ colour: unknown; r: Renderer } | null>(null);
@@ -245,6 +247,7 @@ function drawOverlay(
   selected: MovingSource | null,
   marks: { x: number; y: number; label: string }[],
   overlayMjd?: number,
+  flagPlane: Uint8Array | null = null,
 ) {
   const w = Math.round(W * dpr);
   const h = Math.round(H * dpr);
@@ -259,6 +262,19 @@ function drawOverlay(
   const toScreen = (x: number, y: number): [number, number] => [W / 2 + (x + 0.5 - v.cx) * v.zoom, H / 2 - (y + 0.5 - v.cy) * v.zoom];
   const sky = (ra: number, dec: number) => toScreen(...worldToPixel(b.meta.wcs, ra, dec));
   const t = b.meta.target;
+
+  // contamination flags: orange tint, stronger where more of the visit's exposures were flagged
+  if (flagPlane) {
+    for (let y = 0; y < b.height; y++) {
+      for (let x = 0; x < b.width; x++) {
+        const pct = flagPlane[y * b.width + x];
+        if (pct === 255 || pct < 10) continue;
+        const [sx, sy] = toScreen(x - 0.5, y + 0.5);
+        ctx.fillStyle = `rgba(251,146,60,${Math.min(0.6, 0.12 + pct / 160)})`;
+        ctx.fillRect(sx, sy, v.zoom + 0.5, v.zoom + 0.5);
+      }
+    }
+  }
 
   // field border
   const [x0, y0] = toScreen(-0.5, -0.5);

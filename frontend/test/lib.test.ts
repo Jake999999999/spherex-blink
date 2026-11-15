@@ -172,3 +172,16 @@ test("float16 decoding matches numpy's half floats", () => {
   expect(f[5]).toBeCloseTo(2 ** -24, 30);
   expect(f[6]).toBeCloseTo(3.140625, 6);
 });
+
+import { parseLive } from "../src/lib/urlState";
+
+test("?ra=&dec=&fov= opens any spot (embeddable); bad values are ignored", () => {
+  const p = parseLive("?ra=133.795&dec=-7.245&fov=8")!;
+  expect(p.ra).toBeCloseTo(133.795, 9);
+  expect([p.dec, p.fov, p.name]).toEqual([-7.245, 8, undefined]);
+  expect(parseLive("?ra=-10&dec=5")).toEqual({ ra: 350, dec: 5, fov: 5, name: undefined });
+  expect(parseLive("?ra=1&dec=5&fov=99")!.fov).toBe(15);
+  expect(parseLive("?ra=1&dec=95")).toBeNull();
+  expect(parseLive("?ra=abc&dec=5")).toBeNull();
+  expect(parseLive("?target=barnard")).toBeNull();
+});

@@ -9,13 +9,15 @@ import { PRESETS, blowOutSaturated, colourLevels, fillPinholes, mainToCube, mapS
 import { ColourIntro } from "./components/ColourIntro";
 import { Tour } from "./components/Tour";
 import { availableSteps, type TourContext, type TourSetup } from "./lib/tour";
-import { framePlane, loadBundle, loadIndex, matchedPlane, shortName, wisePlane, type Bundle, type IndexEntry } from "./lib/bundle";
+import { flagPlane as flagPlaneOf, framePlane, loadBundle, loadIndex, matchedPlane, shortName, wisePlane, type Bundle, type IndexEntry } from "./lib/bundle";
 import { TargetBar } from "./components/TargetBar";
 import { Timeline } from "./components/Timeline";
 import { WavelengthPicker } from "./components/WavelengthPicker";
 import { blinkSteps, epochsWithBand, layerOf, matchedLayer, type Step } from "./lib/sequence";
 import { diffLimit, levelsFor, subtract } from "./lib/stretch";
-import { DEFAULT_STATE, parseState, serializeState, type ViewState } from "./lib/urlState";
+import { DEFAULT_STATE, parseLive, parseState, serializeState, type ViewState } from "./lib/urlState";
+import { LiveSearch, type LiveResult } from "./components/LiveSearch";
+import { liveBase } from "./lib/live";
 import { COLORMAPS, COLORMAP_LABELS, buildLut, type ColormapName } from "./gl/colormaps";
 import { formatMjdMonth, formatMjdRange, mjdToYear, propagate } from "./lib/astro";
 import { formatDec, formatRa, pixelToWorld, separationArcsec, worldToPixel } from "./lib/wcs";
@@ -24,6 +26,7 @@ import { centroid, fitMotion } from "./lib/motion";
 import { stopSound } from "./lib/sonify";
 
 const initialUrl = parseState(window.location.search);
+const initialLive = parseLive(window.location.search);
 const SILENT = initialUrl.silent;
 const REDUCED_MOTION = typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
@@ -63,6 +66,7 @@ const storage = {
 
 export default function App() {
   const [index, setIndex] = useState<IndexEntry[] | null>(null);
+  const [liveEntries, setLiveEntries] = useState<IndexEntry[]>([]);
   const [bundle, setBundle] = useState<Bundle | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [state, setState] = useState<ViewState>({ ...DEFAULT_STATE, ...stripSilent(initialUrl) });
@@ -70,6 +74,7 @@ export default function App() {
   const [playing, setPlaying] = useState(() => !REDUCED_MOTION);
   const [fps, setFps] = useState(1.5);
   const [showGaia, setShowGaia] = useState(true);
+  const [showFlags, setShowFlags] = useState(false);
   const [pixelGrid, setPixelGrid] = useState(false);
   const [lo, setLo] = useState(20);
   const [hi, setHi] = useState(99.8);
@@ -104,11 +109,13 @@ export default function App() {
 
   useEffect(() => {
     if (!index) return;
-    const id = index.some((t) => t.id === state.target) ? state.target : index[0]?.id;
+    const all = [...index, ...liveEntries];
+    const entry = all.find((t) => t.id === state.target) ?? index[0];
+    const id = entry?.id;
     if (!id) return;
     let live = true;
     setLoadingId(id); // keep showing the old target until the new one is ready
-    loadBundle(id)
+    loadBundle(id, fetch, entry.base)
       .then((b) => {
         if (!live) return;
         setBundle(b);
@@ -157,12 +164,23 @@ export default function App() {
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [index, state.target]);
+  }, [index, state.target, liveEntries]);
 
   // URL sync
   useEffect(() => {
     if (!bundle) return;
-    const q = serializeState(state, SILENT);
+    let q = serializeState(state, SILENT);
+    const lv = liveEntries.find((t) => t.id === state.target)?.live;
+    if (lv) {
+      // a live field is shared by its coordinates, so the link works for anyone running the server
+      const p = new URLSearchParams(q);
+      p.delete("target");
+      p.delete("silent");
+      p.set("ra", lv.ra.toFixed(5));
+      p.set("dec", lv.dec.toFixed(5));
+      p.set("fov", String(lv.fov));
+      q = p.toString() + (SILENT ? "&silent" : "");
+    }
     if (q !== window.location.search.slice(1)) window.history.replaceState(null, "", `?${q}`);
   }, [state, bundle]);
 
@@ -202,6 +220,10 @@ export default function App() {
 
   const hasMatched = !!bundle?.meta.layout.matched;
   // Colour from our own 6.15" map (twice as sharp) unless the visitor picks NASA's archive map
+  // contamination flags for the frame on screen (the later visit in a difference)
+  const flagEpoch = state.mode === "diff" ? state.t2 : step?.kind === "spherex" ? step.epoch : -1;
+  const flagsOnScreen = showFlags && bundle && flagEpoch >= 0 && state.mode !== "colour" ? flagPlaneOf(bundle, flagEpoch, state.band) : null;
+  const flagSummary = bundle?.meta.flags?.summary?.[flagEpoch]?.[state.band - 1] ?? null;
   const cube = (colourSource === "fine" ? bundle?.finecube : null) ?? bundle?.cube ?? null;
   const isColour = state.mode === "colour" && !!cube;
   // One brightness scale for all three colours ("true ratios"): a colour then means more light at that
@@ -277,6 +299,17 @@ export default function App() {
   }, [advance]);
 
   const set = useCallback((patch: Partial<ViewState>) => setState((s) => ({ ...s, ...patch })), []);
+
+  const onLiveReady = useCallback(
+    (r: LiveResult) => {
+      setLiveEntries((cur) => [
+        ...cur.filter((e) => e.id !== r.id),
+        { id: r.id, name: r.name || `RA ${r.ra.toFixed(3)}°, Dec ${r.dec.toFixed(3)}°`, tagline: `Your field · ${r.fov}′ · live from NASA`, status: "ready", base: liveBase(r.id), live: { ra: r.ra, dec: r.dec, fov: r.fov } },
+      ]);
+      set({ target: r.id });
+    },
+    [set],
+  );
 
   // ---- guided tour: only steps whose target is baked
   const tourSteps = useMemo(() => availableSteps(index?.map((x) => x.id) ?? []), [index]);
@@ -684,8 +717,9 @@ export default function App() {
         </div>
       )}
 
+      <LiveSearch onReady={onLiveReady} autostart={initialLive} />
       <div data-tour="targets">
-        <TargetBar targets={index} current={m.id} onPick={(id) => set({ target: id })} />
+        <TargetBar targets={[...index, ...liveEntries]} current={m.id} onPick={(id) => set({ target: id })} />
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
@@ -706,6 +740,7 @@ export default function App() {
               marks={isColour && mapPoint ? [{ x: mapPoint.mx, y: mapPoint.my, label: "map spectrum" }] : (motion?.pts ?? [])}
               colour={colourPlanes}
               overlayMjd={isColour ? cubeMid : undefined}
+              flagPlane={flagsOnScreen}
               ariaLabel={`${shortName(m.name)}: ${
                 isColour
                   ? "false-colour picture from SPHEREx's all-sky map"
@@ -779,6 +814,9 @@ export default function App() {
               {hover ? (
                 <span className="mono whitespace-nowrap rounded bg-slate-950/80 px-2 py-1 text-[11px] text-slate-300">
                   {formatHover(hover)}
+                  {flagsOnScreen && flagsOnScreen[hover.y * bundle.width + hover.x] !== 255
+                    ? ` · flagged in ${flagsOnScreen[hover.y * bundle.width + hover.x]}% of exposures`
+                    : ""}
                   {isColour
                     ? ""
                     : ` · ${hover.value === null ? "no value (saturated or not covered)" : `${hover.value.toFixed(3)} ${step?.kind === "wise" && !isDiff ? "DN" : "MJy/sr"}`}`}
@@ -996,6 +1034,30 @@ export default function App() {
               onChange={(v) => set({ wise: v })}
             />
             <Toggle label="Gaia star markers" hint={`Where ESA's Gaia catalogue puts stars (G < ${GAIA_G_LIMIT}) on each date`} checked={showGaia} onChange={setShowGaia} />
+            {bundle.flags && (
+              <Toggle
+                label="Contamination flags"
+                hint="Tints pixels that were flagged (cosmic rays, ghosts, halos…) in this visit's exposures; flagged pixels are left out of every stack"
+                checked={showFlags}
+                disabled={state.mode === "colour"}
+                onChange={setShowFlags}
+              />
+            )}
+            {showFlags && flagSummary && state.mode !== "colour" && (
+              <div className="ml-12 mt-1 text-[11px] text-slate-400">
+                {Object.keys(flagSummary).length ? (
+                  <>
+                    Flags in this visit, D{state.band} (share of pixels):{" "}
+                    {Object.entries(flagSummary)
+                      .slice(0, 6)
+                      .map(([k, v]) => `${k} ${v}%`)
+                      .join(" · ")}
+                  </>
+                ) : (
+                  "No flags set in this visit and detector."
+                )}
+              </div>
+            )}
             <Toggle label="Smooth pixels" hint="SPHEREx pixels are 6.15″ wide. Smoothing is for display only" checked={smooth} onChange={setSmooth} />
           </Section>
 

@@ -25,6 +25,9 @@ PIXEL_SCALE_ARCSEC = 6.15
 # can fake a one-off brightening; together they cost about 5% of pixels. Table in docs/VALIDATION.md.
 BAD_BITS = (0, 1, 2, 6, 7, 9, 10, 11, 15, 17, 19, 20, 22, 23, 24, 25, 26, 27, 28)
 BAD_MASK = sum(1 << b for b in BAD_BITS)
+FLAG_NAMES = {0: "TRANSIENT", 1: "OVERFLOW", 2: "SUR_ERROR", 6: "NONFUNC", 7: "DICHROIC", 9: "MISSING_DATA", 10: "HOT",
+              11: "COLD", 15: "NONLINEAR", 17: "PERSIST", 19: "OUTLIER", 20: "CROSSTALK", 21: "SOURCE", 22: "GHOST",
+              23: "GHOST_FPA", 24: "GHOST_EXT", 25: "STREAK", 26: "BLOOM", 27: "SNOWBALL", 28: "HALO"}
 OVERFLOW_BIT = 1
 
 DETECTOR_RANGES_UM = {1: (0.74, 1.12), 2: (1.10, 1.65), 3: (1.64, 2.44), 4: (2.42, 3.83), 5: (3.81, 4.43), 6: (4.42, 5.01)}
@@ -123,6 +126,7 @@ class Exposure2D:
     wavelength_um: float | None  # at the cutout centre
     wave_wcs: WCS | None = None  # per-pixel (wavelength, bandwidth) lookup
     wave: np.ndarray | None = None  # wavelength (µm) at every pixel of the cutout
+    flags: np.ndarray | None = None  # raw FLAGS bits (int64)
 
 
 def load_exposure(path, subtract_background: bool = True) -> Exposure2D:
@@ -157,7 +161,7 @@ def load_exposure(path, subtract_background: bool = True) -> Exposure2D:
             wave = np.asarray(ww.pixel_to_world_values(xx.ravel(), yy.ravel())[0], float).reshape(ny, nx)
         except Exception:  # noqa: BLE001
             wave = None
-    return Exposure2D(sci, var, good, overflow, wcs, det, mjd, wl, ww, wave)
+    return Exposure2D(sci, var, good, overflow, wcs, det, mjd, wl, ww, wave, flags)
 
 
 def robust_background(values: np.ndarray, iters: int = 5, k: float = 3.0) -> float:

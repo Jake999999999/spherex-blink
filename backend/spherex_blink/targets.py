@@ -26,6 +26,10 @@ class Target:
     variable: bool = False  # brightness changes: time-averaged map spectra would mix phases
     colour_preset: str = "spread"  # preset shown first in Colour mode (frontend/src/lib/colour.ts PRESETS)
     colour_hint: str = ""  # what to look for in Colour mode; only claims checked against the data
+    # live fields: a plain sky position with no catalogue object (motion zero, labelled "Field centre")
+    position: tuple[float, float] | None = None
+    visits_max: int = 0  # 0 = all visits; live quick looks cap it
+    per_cell: int = 0  # 0 = old behaviour (max_exposures spread per detector); else exposures per visit and detector
 
 
 TARGETS: dict[str, Target] = {
@@ -89,6 +93,24 @@ TARGETS: dict[str, Target] = {
             gaia_id="156430822114424576",
             status="conditional",
             notes=["A and B (1.5″ apart) are blended.", "Saturates on detectors 2–6; only detector 1 (0.75–1.1 µm) measures cleanly."],
+        ),
+        Target(
+            id="r-dra",
+            variable=True,
+            colour_preset="spread",
+            colour_hint="R Draconis is blown out (white) at most wavelengths, and because it pulses, the map (an average over a year) mixes its bright and faint moments. Its story is in Blink and its light curve.",
+            name="R Draconis",
+            tagline="A giant star that pulses every 8 months",
+            blurb="A Mira-type red giant that swells and shrinks every 245 days, changing brightness several-fold. "
+            "It is one of the challenge's test targets: its light curve shows the pulsation visit by visit.",
+            fov_arcmin=6.0,
+            default_mode="colour",
+            default_band=6,
+            gaia_id="1648328016354496384",
+            per_cell=5,  # ~180 exposures: keeps total downloads near the owner-approved budget
+            visits_max=6,
+            status="conditional",
+            notes=["Far too bright for SPHEREx: its centre saturates at every wavelength, so its light curve uses a ring around the centre."],
         ),
         Target(
             id="wise-0855",

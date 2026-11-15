@@ -29,6 +29,25 @@ const int = (v: string | null, lo: number, hi: number): number | undefined => {
   return n >= lo && n <= hi ? n : undefined;
 };
 
+export interface LiveParams {
+  ra: number;
+  dec: number;
+  fov: number;
+  name?: string;
+}
+
+/** ?ra=&dec=&fov= (degrees, arcmin): open any spot in the sky (embeddable). */
+export function parseLive(search: string): LiveParams | null {
+  const q = new URLSearchParams(search);
+  const ra = Number(q.get("ra"));
+  const dec = Number(q.get("dec"));
+  if (!q.has("ra") || !q.has("dec") || !Number.isFinite(ra) || !Number.isFinite(dec) || dec < -90 || dec > 90) return null;
+  const f = Number(q.get("fov") ?? 5);
+  const fov = Number.isFinite(f) ? Math.min(15, Math.max(2, Math.round(f))) : 5;
+  const name = (q.get("name") ?? "").slice(0, 80) || undefined;
+  return { ra: ((ra % 360) + 360) % 360, dec, fov, name };
+}
+
 export function parseState(search: string, base: ViewState = DEFAULT_STATE): Partial<ViewState> & { silent: boolean } {
   const q = new URLSearchParams(search);
   const out: Partial<ViewState> & { silent: boolean } = { silent: q.has("silent") };

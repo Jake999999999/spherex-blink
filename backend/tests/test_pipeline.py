@@ -253,3 +253,26 @@ def test_cosmic_ray_and_artefact_bits_are_masked():
     a = np.where(good, hit, np.nan)
     m, _, n = frames.stack([a, np.full((5, 5), 10.0)], [np.ones((5, 5)), np.ones((5, 5))])
     assert m[2, 2] == pytest.approx(10.0) and n[2, 2] == 1
+
+
+def test_subsample_by_visit_keeps_every_cell_filled():
+    from spherex_blink import bake
+
+    exps = []
+    for v in range(12):  # 12 visits, 10 exposures per detector each
+        for d in range(1, 7):
+            for k in range(10):
+                exps.append(irsa.Exposure("c", f"{v}{d}{k}", d, "u", 60000 + v * 180 + k, f"{v}-{d}-{k}"))
+    out = bake.subsample_by_visit(exps, per_cell=4, visits_max=6)
+    groups = frames.group_epochs([e.mjd for e in out])
+    assert len(groups) == 6
+    for g in groups:
+        per_det = {d: sum(out[i].detector == d for i in g) for d in range(1, 7)}
+        assert all(n == 4 for n in per_det.values())
+
+
+def test_midpoint_handles_ra_wrap():
+    from spherex_blink import bake
+
+    ra, dec = bake.midpoint((359.99, 10.0), (0.01, 10.0))
+    assert min(abs(ra - 0.0), abs(ra - 360.0)) < 1e-6 and dec == pytest.approx(10.0, abs=1e-6)

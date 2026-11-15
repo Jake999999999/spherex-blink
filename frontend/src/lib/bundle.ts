@@ -81,6 +81,7 @@ export interface Meta {
   cube?: CubeDesc | null;
   /** S2: our own 6.15" 102-channel map from the single exposures */
   finecube?: (CubeDesc & { dtype?: string }) | null;
+  flags?: { file: string; shape: [number, number, number, number]; meaning: string; masked_bits: string[]; summary: Record<string, number>[][] } | null;
   colour_preset?: string;
   colour_hint?: string;
   variable?: boolean;
@@ -125,6 +126,9 @@ export interface IndexEntry {
   name: string;
   tagline?: string;
   status: "ready" | "conditional";
+  /** where the bundle lives (default: the built-in benchmarks folder); live fields come from the local server */
+  base?: string;
+  live?: { ra: number; dec: number; fov: number };
 }
 
 /** "Pulsating red giant (Gaia DR3 …)" -> "Pulsating red giant" for compact labels. */
@@ -137,6 +141,7 @@ export interface Bundle {
   spectra: Spectra | null; // per-exposure photometry (M2 bundles)
   cube: Cube | null; // 102-channel all-sky map window (M5 bundles)
   finecube: Cube | null; // our 6.15" map (S2 bundles)
+  flags: Uint8Array | null; // % of exposures flagged per pixel [E,6,H,W]; 255 = not covered
   width: number;
   height: number;
 }
@@ -161,15 +166,15 @@ export function parseBundle(
     throw new Error(`frames.bin is ${buf.byteLength} bytes, meta says ${meta.layout.bytes}`);
   }
   const [, , h, w] = meta.layout.frames.shape;
-  return { meta, data: new Float32Array(buf), gaia, spectra, cube, finecube, width: w, height: h };
+  return { meta, data: new Float32Array(buf), gaia, spectra, cube, finecube, flags: null, width: w, height: h };
 }
 
 const isJson = (r: Response | null) => !!r && r.ok && (r.headers.get("content-type") ?? "").includes("json");
 // Vite's dev server answers a missing file with index.html (200, text/html), so check the type.
 const isBinary = (r: Response | null) => !!r && r.ok && !(r.headers.get("content-type") ?? "").includes("html");
 
-export async function loadBundle(id: string, fetchFn: typeof fetch = fetch): Promise<Bundle> {
-  const base = `${BENCH_ROOT}/${id}`;
+export async function loadBundle(id: string, fetchFn: typeof fetch = fetch, baseOverride?: string): Promise<Bundle> {
+  const base = baseOverride ?? `${BENCH_ROOT}/${id}`;
   const [m, b, g, s] = await Promise.all([
     fetchFn(`${base}/meta.json`),
     fetchFn(`${base}/frames.bin`),
@@ -193,7 +198,15 @@ export async function loadBundle(id: string, fetchFn: typeof fetch = fetch): Pro
       finecube = parseCube(meta.finecube, asF32 as ArrayBuffer);
     }
   }
-  return parseBundle(meta, await b.arrayBuffer(), await g.json(), spectra, cube, finecube);
+  const bundle = parseBundle(meta, await b.arrayBuffer(), await g.json(), spectra, cube, finecube);
+  if (meta.flags?.file) {
+    const fl = await fetchFn(`${base}/${meta.flags.file}`).catch(() => null);
+    if (isBinary(fl)) {
+      const arr = new Uint8Array(await fl!.arrayBuffer());
+      if (arr.length === meta.flags.shape.reduce((a, b) => a * b, 1)) bundle.flags = arr;
+    }
+  }
+  return bundle;
 }
 
 const planeSize = (b: Bundle) => b.width * b.height;
@@ -231,6 +244,14 @@ export function matchedPlane(b: Bundle, epoch: number, detector: number): Float3
   const n = b.width * b.height;
   const start = m.offset / 4 + (epoch * 6 + (detector - 1)) * n;
   return b.data.subarray(start, start + n);
+}
+
+/** % of a visit's exposures flagged at each pixel, for one detector (255 = not covered). */
+export function flagPlane(b: Bundle, epoch: number, detector: number): Uint8Array | null {
+  if (!b.flags) return null;
+  const n = b.width * b.height;
+  const start = (epoch * 6 + (detector - 1)) * n;
+  return b.flags.subarray(start, start + n);
 }
 
 export function wisePlane(b: Bundle, i: number): Float32Array {

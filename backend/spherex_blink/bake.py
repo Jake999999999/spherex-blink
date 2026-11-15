@@ -29,7 +29,7 @@ NOW_YEAR = 2026.5
 MAX_BUNDLE_BYTES = 5 * 1024 * 1024
 
 
-TARGET_ORDER = ["barnard", "eps-ind-b", "nep-lpv", "rw-aur", "wise-0855"]
+TARGET_ORDER = ["barnard", "eps-ind-b", "wise-0855", "rw-aur", "r-dra", "nep-lpv"]
 
 
 def write_index(out_root: Path = OUT_ROOT) -> list[dict]:
@@ -77,6 +77,12 @@ def resolve_motion(client: httpx.Client, t: Target) -> dict:
             "parallax": s["parallax"], "g": s["g"], "ref_year": gaia.GAIA_EPOCH,
             "source": f"Gaia DR3 {t.gaia_id}",
         }
+    if t.position is not None:
+        return {
+            "ra": t.position[0] % 360.0, "dec": t.position[1], "pmra": 0.0, "pmdec": 0.0,
+            "parallax": None, "g": None, "ref_year": gaia.GAIA_EPOCH,
+            "source": "Field centre (a sky position, not a catalogue object)",
+        }
     assert t.allwise_seed and t.pm_mas_yr
     a = gaia.allwise_source(client, *t.allwise_seed)
     return {
@@ -89,6 +95,38 @@ def resolve_motion(client: httpx.Client, t: Target) -> dict:
 
 def position_at(m: dict, year: float) -> tuple[float, float]:
     return gaia.propagate(m["ra"], m["dec"], m["pmra"], m["pmdec"], m["ref_year"], year)
+
+
+def subsample_by_visit(exps: list[irsa.Exposure], per_cell: int, visits_max: int = 0) -> list[irsa.Exposure]:
+    """Pick up to `per_cell` exposures per (visit, detector), spread in time, from up to `visits_max`
+    visits spread over the whole span. Keeps every visit/detector cell above MIN_PER_CELL where the
+    archive has enough, unlike a per-detector cap (architect review, live mode)."""
+    if not exps:
+        return exps
+    groups = frames.group_epochs([e.mjd for e in exps])
+    if visits_max and len(groups) > visits_max:
+        idx = np.unique(np.round(np.linspace(0, len(groups) - 1, visits_max)).astype(int))
+        groups = [groups[i] for i in idx]
+    out = []
+    for g in groups:
+        for d in range(1, 7):
+            ed = sorted((exps[i] for i in g if exps[i].detector == d), key=lambda e: e.mjd)
+            if len(ed) <= per_cell:
+                out.extend(ed)
+            else:
+                k = np.unique(np.round(np.linspace(0, len(ed) - 1, per_cell)).astype(int))
+                out.extend(ed[i] for i in k)
+    return sorted(out, key=lambda e: (e.mjd, e.detector))
+
+
+def midpoint(p1: tuple[float, float], p2: tuple[float, float]) -> tuple[float, float]:
+    """Great-circle midpoint (no RA-wrap trouble near 0/360)."""
+    v = np.zeros(3)
+    for ra, dec in (p1, p2):
+        a, d = math.radians(ra), math.radians(dec)
+        v += (math.cos(d) * math.cos(a), math.cos(d) * math.sin(a), math.sin(d))
+    v /= np.linalg.norm(v)
+    return (math.degrees(math.atan2(v[1], v[0])) % 360.0, math.degrees(math.asin(max(-1.0, min(1.0, v[2])))))
 
 
 def subsample(exps: list[irsa.Exposure], max_n: int) -> list[irsa.Exposure]:
@@ -191,7 +229,10 @@ def _progress(done: int, failed: int, total: int) -> None:
 
 
 def bake(target_id: str, client: httpx.Client | None = None, out_root: Path = OUT_ROOT) -> dict:
-    t = TARGETS[target_id]
+    return bake_target(TARGETS[target_id], client, out_root)
+
+
+def bake_target(t: Target, client: httpx.Client | None = None, out_root: Path = OUT_ROOT) -> dict:
     own = client is None
     client = client or irsa.make_client()
     try:
@@ -200,20 +241,22 @@ def bake(target_id: str, client: httpx.Client | None = None, out_root: Path = OU
         p_now = position_at(motion, NOW_YEAR)
         p_wise = position_at(motion, WISE_YEAR)
         # Centre between the 2010 and 2026 positions so both are in the frame.
-        cra = 0.5 * (p_now[0] + p_wise[0])
-        cdec = 0.5 * (p_now[1] + p_wise[1])
+        cra, cdec = midpoint(p_now, p_wise)
         npix = int(math.ceil(t.fov_arcmin * 60.0 / frames.PIXEL_SCALE_ARCSEC)) | 1
         shape = (npix, npix)
         grid = frames.grid_wcs(cra, cdec, npix)
         size_deg = t.fov_arcmin / 60.0 * 1.5  # room for detector rotation
 
         all_exps = irsa.spherex_exposures(client, cra, cdec)
-        exps = subsample(all_exps, t.max_exposures)
+        exps = subsample_by_visit(all_exps, t.per_cell, t.visits_max) if t.per_cell else subsample(all_exps, t.max_exposures)
+        if not exps:
+            raise RuntimeError("SPHEREx has no exposures covering this position yet")
         print(f"  {len(all_exps)} exposures cover the field; using {len(exps)}", flush=True)
         urls = [irsa.cutout_url(e.url, cra, cdec, size_deg) for e in exps]
         paths = irsa.fetch_many(client, urls, progress=_progress)
 
         wave_of: list[np.ndarray] = []
+        flag_of: list[tuple] = []
         loaded: list[tuple[irsa.Exposure, frames.Exposure2D, np.ndarray, np.ndarray]] = []
         exp_meta = []
         for e, u in zip(exps, urls):
@@ -246,6 +289,15 @@ def bake(target_id: str, client: httpx.Client | None = None, out_root: Path = OU
             else:
                 wl_grid = np.full(shape, np.nan, np.float32)
             wave_of.append(wl_grid)
+            # contamination flags: share of this exposure's pixels flagged, on the grid, and which bits
+            bad = (ex.flags & frames.BAD_MASK) != 0 if ex.flags is not None else ~ex.good
+            badf, _, cov = frames.resample(bad.astype(np.float32), np.ones_like(ex.image), np.ones_like(ex.good), ex.wcs, grid, shape)
+            bits = {}
+            if ex.flags is not None:
+                for b, nm in frames.FLAG_NAMES.items():
+                    if nm != "SOURCE":
+                        bits[nm] = int(((ex.flags >> b) & 1).sum())
+            flag_of.append((np.where(cov, badf, np.nan), int(ex.flags.size if ex.flags is not None else 0), bits))
 
         groups = frames.group_epochs([e.mjd for e, *_ in loaded])
         assert len(wave_of) == len(loaded)
@@ -278,6 +330,8 @@ def bake(target_id: str, client: httpx.Client | None = None, out_root: Path = OU
         wise_missing = None
         try:
             wise_frames = wise.allwise_frames(client, cra, cdec, size_deg, grid, shape)
+            if not wise_frames:
+                wise_missing = "no AllWISE atlas image covers this position"
         except irsa.FetchError as err:
             # The 2010 frame is optional: bake without it, re-bake from cache once IRSA's WISE search is back.
             wise_frames = []
@@ -308,8 +362,32 @@ def bake(target_id: str, client: httpx.Client | None = None, out_root: Path = OU
         mres = matchedmod.build(visits_in, chans, shape)
         print(f"  matched: {mres.coverage}", flush=True)
 
+        # contamination flags per visit and detector: % of the stacked exposures flagged at each pixel,
+        # and a summary of which flags were set (share of all pixels in those exposures)
+        flag_pct = np.full((E, 6, npix, npix), 255, np.uint8)  # 255 = not covered
+        flag_summary = []
+        for ei, g in enumerate(groups):
+            row = []
+            for d in range(1, 7):
+                idx = [i for i in g if loaded[i][0].detector == d]
+                if not idx:
+                    row.append({})
+                    continue
+                arr = np.stack([flag_of[i][0] for i in idx])
+                with np.errstate(invalid="ignore"):
+                    frac = np.nanmean(arr, axis=0)
+                flag_pct[ei, d - 1] = np.where(np.isfinite(frac), np.clip(np.round(frac * 100), 0, 100), 255).astype(np.uint8)
+                npx = sum(flag_of[i][1] for i in idx) or 1
+                tot: dict[str, int] = {}
+                for i in idx:
+                    for nm, c in flag_of[i][2].items():
+                        tot[nm] = tot.get(nm, 0) + c
+                row.append({nm: round(100 * c / npx, 2) for nm, c in sorted(tot.items(), key=lambda kv: -kv[1]) if c})
+            flag_summary.append(row)
+
         out = out_root / t.id
         out.mkdir(parents=True, exist_ok=True)
+        (out / "flags.bin").write_bytes(flag_pct.tobytes())
         fine16 = np.where(np.isfinite(mres.fine), mres.fine, np.nan).astype("<f2")
         (out / "finecube.bin").write_bytes(fine16.tobytes())
         fine_desc = {
@@ -374,6 +452,14 @@ def bake(target_id: str, client: httpx.Client | None = None, out_root: Path = OU
             "wise": [{k: v for k, v in w.items() if k != "image"} for w in wise_frames],
             "cube": cube_desc,
             "finecube": fine_desc,
+            "flags": {
+                "file": "flags.bin",
+                "dtype": "uint8",
+                "shape": [E, 6, npix, npix],
+                "meaning": "percent of the visit's exposures on that detector flagged at the pixel (255 = not covered)",
+                "masked_bits": [frames.FLAG_NAMES.get(b, str(b)) for b in frames.BAD_BITS],
+                "summary": flag_summary,
+            },
             "variable": t.variable,
             "colour_preset": t.colour_preset,
             "colour_hint": t.colour_hint,
@@ -400,7 +486,8 @@ def bake(target_id: str, client: httpx.Client | None = None, out_root: Path = OU
         print(f"  wrote {out} ({size / 1e6:.2f} MB, {E} visits, {len(wise_frames)} WISE frames, {len(field)} Gaia stars)", flush=True)
         if size > MAX_BUNDLE_BYTES:
             print(f"  ! bundle is over the {MAX_BUNDLE_BYTES / 1e6:.0f} MB limit", flush=True)
-        write_index(out_root)
+        if out_root == OUT_ROOT:
+            write_index(out_root)  # live fields never go into the public site's index
         return meta
     finally:
         if own:
