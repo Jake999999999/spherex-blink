@@ -6,6 +6,8 @@ SPHEREx photographs the whole sky in 102 infrared colours, once every six months
 
 A NASA Space Apps Challenge 2026 entry. Not a NASA product.
 
+> **AI Disclaimer:** All code in this repository is AI-generated using **Opus 5.5** and **Gemini 4 Hydrogen**. Data attribution and external resource details are listed in [`NASA_DATA.md`](NASA_DATA.md) and [`PARTNER_AND_OTHER_DATA.md`](PARTNER_AND_OTHER_DATA.md).
+
 ## What you can do
 
 - **Any spot in the sky**: type a name (“R Draconis”), decimal/sexagesimal coordinates (`08h55m10.831s -07d14m42.53s`, `133.795 -7.245`), click the **shuffle button** next to the search bar to fill a verified random IR target, or load a CSV/TSV **Target List** (`name, ra, dec`) to step through candidates. Choose the field of view (2–15′), and the app fetches the SPHEREx exposures for that patch (plus, with the local server, WISE/NEOWISE images and Gaia stars). A **Share** button (or `?ra=…&dec=…&fov=…`) copies a direct link to the exact view (embeddable). A live **Data Source Health** bar pings NASA S3, IRSA, Gaia, VizieR, CDS Sesame, and the data mirror so you can see immediately if an upstream archive is down. It works two ways:
