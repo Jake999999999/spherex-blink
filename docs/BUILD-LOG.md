@@ -88,10 +88,20 @@ What came out:
 - **The pulsation was overstated:** "fades to half" compared different wavelengths. Divided by wavelength and compared visit by visit, the giant dims by about a third; the tour and docs were corrected.
 - **The chart descriptions first got two things wrong.** They called constant stars "variable" (wavelength trend and single-exposure noise) and read noise in empty sky as "dips". Both were fixed with tests.
 
+## 10. Making colour the main view
+
+The owner found smoothing looked poor in Colour mode and wanted the 102-colour view as the default, better explained. What was wrong, measured rather than guessed:
+
+- **Ringing:** the colour grid is coarse (about 25 pixels across a field), and the Catmull-Rom filter overshoots around bright stars. With three channels each ringing differently, that showed as coloured fringes. Fix: clamp each smoothed value to its four nearest pixels, and skip missing pixels instead of drawing hard squares. Smoothed: 82 hard edges in the image, against 858 with raw pixels.
+- **Coloured noise:** stretching each colour separately turns sky noise into confetti. Fix: the Lupton et al. (2004) stretch on combined brightness, keeping colour ratios.
+- **A display option that lied:** "Balanced" (each colour stretched on its own) painted an ordinary star green. Removed; only true ratios remain.
+- **Saturation faked colours:** the three bright targets came out deep red, only because their short-wavelength light was missing. Windows now need real data in half their channels, and blown-out cores are painted white with a note.
+- **Hints were checked before being written.** The planned "water makes the giant stand out" and "warm dust makes RW Aur red" didn't survive the measurements, so those hints say what is actually visible. The brown dwarfs measure as pink (R 0.69, G 0.09, B 0.22), not magenta, and the text now says pink.
+
 ## Testing, in numbers
 
 - Pipeline: 34 pytest tests (including the cube reader against a fake Range server and the HEALPix tile lookup against IRSA's answers) (resampling accuracy, stacking, flag handling, photometry within 2%, ring photometry with a saturated core, retry logic, catalogue parsing, Gaia propagation to 0.5″).
-- App: 50 bun tests (including colour maths, map spectra, sonification and chart descriptions) (sky coordinates, stretch maths, URL state, bundle format, centroid and motion fit, spectra helpers, saturated fill, tour steps and card placement), plus TypeScript type-checking and a production build.
+- App: 55 bun tests (including colour maths, honest-colour rules, map spectra, sonification and chart descriptions) (sky coordinates, stretch maths, URL state, bundle format, centroid and motion fit, spectra helpers, saturated fill, tour steps and card placement), plus TypeScript type-checking and a production build.
 - Browser checks after each milestone, on real data.
 
 ## Open decisions

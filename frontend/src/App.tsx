@@ -399,19 +399,21 @@ export default function App() {
   // "Why does it look this colour?" from the source's own clean measurements (or the map spectrum)
   const colourWhy = useMemo((): string | null => {
     if (!isColour) return null;
+    // Explain with the same data the picture is made from (the all-sky map) when there is a map
+    // spectrum; otherwise fall back to the star's own clean single-exposure points.
     let wl: number[] = [];
     let fl: number[] = [];
-    if (selected && bundle?.spectra) {
-      const good = points(bundle.spectra, selected).filter((p) => p.flag === FLAG_OK);
-      wl = good.map((p) => p.wl);
-      fl = good.map((p) => p.flux);
-    } else if (mapOverlay?.spectrum) {
+    if (mapOverlay?.spectrum) {
       mapOverlay.spectrum.flux.forEach((f, i) => {
         if (f !== null) {
           wl.push(mapOverlay.spectrum!.wl[i]);
           fl.push(f);
         }
       });
+    } else if (selected && bundle?.spectra) {
+      const good = points(bundle.spectra, selected).filter((p) => p.flag === FLAG_OK);
+      wl = good.map((p) => p.wl);
+      fl = good.map((p) => p.flux);
     }
     const shares = windowShares(wl, fl, mix);
     if (!shares) return selected ? "Too bright (saturated) or too faint in these windows to say what colour it really is." : null;
