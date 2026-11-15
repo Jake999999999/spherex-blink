@@ -1053,6 +1053,11 @@ export default function App() {
                 <VisitSelect value={state.t2} epochs={m.epochs} ok={bandEpochs} onChange={(v) => set({ t2: v })} />
                 <span className="text-slate-400">minus</span>
                 <VisitSelect value={state.t1} epochs={m.epochs} ok={bandEpochs} onChange={(v) => set({ t1: v })} />
+                {diffOk && (
+                  <span className="mono text-xs text-slate-400">
+                    ({Math.round(Math.abs(m.epochs[state.t2].mjd - m.epochs[state.t1].mjd))} days apart)
+                  </span>
+                )}
                 {!diffOk && <span className="text-xs text-amber-300">Pick two different visits that both have this wavelength.</span>}
                 {hasMatched ? (
                   <span className="text-xs text-slate-400" title="Each visit is compared wavelength by wavelength, so a star's colour can't make it look brighter or fainter.">
@@ -1066,9 +1071,10 @@ export default function App() {
                     not matched by wavelength: every star leaves leftovers
                   </span>
                 )}
-                <span className="ml-auto flex items-center gap-2 text-xs text-slate-400">
-                  <span className="h-2.5 w-16 rounded" style={{ background: "linear-gradient(90deg,#a5f3fc,#22d3ee,#085978,#060a10,#7c4206,#f59e0b,#fee68a)" }} />
-                  fainter · same · brighter
+                <span className="ml-auto flex items-center gap-2 text-xs text-slate-300">
+                  <span className="text-cyan-300">Cyan: faded / old spot</span>
+                  <span className="h-2.5 w-20 rounded border border-white/10" style={{ background: "linear-gradient(90deg,#a5f3fc,#22d3ee,#085978,#060a10,#7c4206,#f59e0b,#fee68a)" }} />
+                  <span className="text-amber-300">Amber: brighter / new spot</span>
                 </span>
               </div>
             )}
