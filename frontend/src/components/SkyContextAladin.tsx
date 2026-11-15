@@ -39,7 +39,11 @@ declare global {
   }
 }
 
-const ALADIN_SCRIPT_URL = "https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js";
+const ALADIN_SCRIPT_URLS = [
+  "https://cdn.jsdelivr.net/npm/aladin-lite@3/dist/aladin.umd.cjs",
+  "https://unpkg.com/aladin-lite@3/dist/aladin.umd.cjs",
+  "https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js",
+];
 const SURVEYS = [
   { id: "P/allWISE/color", label: "AllWISE" },
   { id: "P/2MASS/color", label: "2MASS" },
@@ -48,34 +52,39 @@ const SURVEYS = [
 
 let aladinLoader: Promise<AladinGlobal> | null = null;
 
+function injectScript(src: string): Promise<AladinGlobal> {
+  return new Promise<AladinGlobal>((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.onload = () => {
+      if (!window.A) {
+        reject(new Error("Aladin Lite did not initialize"));
+        return;
+      }
+      window.A.init.then(() => resolve(window.A!)).catch(reject);
+    };
+    script.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.head.appendChild(script);
+  });
+}
+
 function loadAladinLite(): Promise<AladinGlobal> {
   if (typeof window === "undefined") return Promise.reject(new Error("No window"));
   if (window.A) return window.A.init.then(() => window.A!);
   if (aladinLoader) return aladinLoader;
 
-  aladinLoader = new Promise<AladinGlobal>((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = ALADIN_SCRIPT_URL;
-    script.async = true;
-    script.onload = () => {
-      if (!window.A) {
-        aladinLoader = null;
-        reject(new Error("Aladin Lite did not initialize"));
-        return;
+  aladinLoader = (async () => {
+    for (const url of ALADIN_SCRIPT_URLS) {
+      try {
+        return await injectScript(url);
+      } catch {
+        // try next CDN mirror
       }
-      window.A.init
-        .then(() => resolve(window.A!))
-        .catch((err) => {
-          aladinLoader = null;
-          reject(err);
-        });
-    };
-    script.onerror = () => {
-      aladinLoader = null;
-      reject(new Error("Could not load Aladin Lite from CDS Strasbourg"));
-    };
-    document.head.appendChild(script);
-  });
+    }
+    aladinLoader = null;
+    throw new Error("Could not load Aladin Lite from CDN or CDS Strasbourg");
+  })();
   return aladinLoader;
 }
 
