@@ -479,6 +479,7 @@ def run(client: httpx.Client | None = None) -> dict:
                 "per_target": {k: (float(np.median(v)) if v else None) for k, v in rep.items()},
             },
             "flags": flag_check(TARGET_ORDER),
+            "injection": json.loads((OUT_ROOT / "injection.json").read_text()) if (OUT_ROOT / "injection.json").exists() else None,
             "noise": _combine_noise(noise, pnoise, by_band),
             "matched_difference": mtc,
             "map_vs_exposures": {
@@ -644,6 +645,35 @@ def write_markdown(r: dict) -> None:
             "(Plain stacks fail this test for a good reason: their “blank” sky still holds real faint stars and glow below Gaia's limit, so it isn't pure noise.) "
             "The app multiplies single-exposure error bars by the photometry factor for each detector (never by less than 1). "
             f"Absolute brightness carries a further ≈{(nz.get('absolute_floor') or 0) * 100:.0f}% uncertainty (the star-to-star spread against 2MASS/WISE, section 1).",
+            "",
+        ]
+    inj = r.get("injection")
+    if inj:
+        lines += [
+            "## 9. Injection–recovery (S4)",
+            "",
+            "Fake stars of known brightness (12 per level, at blank positions) and fake movers of known speed (3 per speed, 5 mJy) were planted into the real single exposures, "
+            "and measured with the same code as the real data. Planted stars use a Gaussian PSF whose width is measured from real stars in each field and detector "
+            "(the official SPHEREx PSF replaces it in S6). A planted star counts as recovered when its combined single-exposure flux reaches 5σ with the honest (S3) error bars.",
+            "",
+            "| Target | 90% recovered down to | Bias at 8 mJy | Expected from the aperture | Motion recovered (SPHEREx only) from |",
+            "|---|---|---|---|---|",
+        ]
+        for tid, v in inj.items():
+            b8 = next((l["bias"] for l in v["static"] if l["flux_mjy"] == 8.0), None)
+            eb = v.get("expected_bright_bias")
+            lim = v.get("limit_90_mjy")
+            ms = v.get("min_reliable_speed")
+            lim_s = f"{lim} mJy" if lim else "–"
+            b8_s = f"{b8 * 100:+.1f}%" if b8 is not None else "–"
+            eb_s = f"{eb * 100:+.1f}%" if eb is not None else "–"
+            span = v["movers"][0]["baseline_yr"] if v["movers"] else 0.0
+            ms_s = f"{ms:g}″/yr (over the {span:.1f}-yr SPHEREx span)" if ms and v["movers"] else "not reliable"
+            lines.append(f"| {tid} | {lim_s} | {b8_s} | {eb_s} | {ms_s} |")
+        lines += [
+            "",
+            "Reading it: the brightness bias of bright planted stars matches the share of a Gaussian's light that falls outside the 15.4″ aperture, so the measurement itself is unbiased; real stars (section 1) agree with 2MASS/WISE because the real PSF holds more light in its core. "
+            "Faint stars read low, the usual faint-end bias. Motions slower than the listed speed need the 2010 WISE frame for a long enough baseline.",
             "",
         ]
     lines += [

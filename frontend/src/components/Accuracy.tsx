@@ -8,6 +8,8 @@ interface Validation {
   motion: Record<string, { measured: number; gaia: number; diff_pct: number; reference?: string }>;
   repeatability: { median: number | null; per_target: Record<string, number | null> };
   map_vs_exposures: { median_ratio: number | null; median_scatter: number | null };
+  injection?: Record<string, { limit_90_mjy: number | null; min_reliable_speed: number | null; movers: { baseline_yr: number }[] }> | null;
+  matched_difference?: Record<string, { plain: number; matched: number; n: number }>;
 }
 
 /** "How accurate is this?" Numbers come from validation.json, written by the pipeline's validate step. */
@@ -50,6 +52,21 @@ export function Accuracy({ target }: { target: string }) {
         <p>
           <b className="text-white">This target's motion.</b> Measured {mot.measured.toFixed(2)}″/yr from the images; reference {mot.gaia.toFixed(2)}″/yr ({mot.diff_pct >= 0 ? "+" : ""}
           {mot.diff_pct.toFixed(1)}%).
+        </p>
+      )}
+      {v.injection?.[target] && (
+        <p>
+          <b className="text-white">Tested with fake stars.</b> We planted stars of known brightness into the real exposures and measured them like the real ones.
+          {v.injection[target].limit_90_mjy !== null && ` Here, stars down to ${v.injection[target].limit_90_mjy} mJy are found 9 times out of 10.`}
+          {v.injection[target].min_reliable_speed !== null
+            ? ` SPHEREx alone measures motions of ${v.injection[target].min_reliable_speed}″ a year or faster; slower ones need the 2010 WISE image.`
+            : " SPHEREx alone can't measure motions reliably here; it needs the 2010 WISE image."}
+        </p>
+      )}
+      {v.matched_difference?.[target] && (
+        <p>
+          <b className="text-white">Difference images.</b> Stars that didn't change leave {v.matched_difference[target].matched.toFixed(0)}% of their brightness behind (it was{" "}
+          {v.matched_difference[target].plain.toFixed(0)}% before we matched wavelengths), so only bigger changes are real.
         </p>
       )}
       {v.map_vs_exposures.median_scatter !== null && (

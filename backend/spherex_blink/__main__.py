@@ -19,8 +19,16 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("targets", help="list demo targets")
     sub.add_parser("index", help="rewrite frontend/public/benchmarks/index.json from the baked bundles")
     sub.add_parser("retext", help="refresh names/notes in baked bundles from targets.py (no network)")
+    sub.add_parser("inject", help="injection-recovery tests on the baked targets (writes injection.json; then run validate)")
     sub.add_parser("validate", help="compare baked numbers with 2MASS/AllWISE/Gaia; write validation.json and docs/VALIDATION.md")
     args = ap.parse_args(argv)
+
+    if args.cmd == "inject":
+        from .bake import TARGET_ORDER
+        from .inject import run_all
+
+        run_all(TARGET_ORDER)
+        return 0
 
     if args.cmd == "validate":
         from .validate import run
