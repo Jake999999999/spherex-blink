@@ -934,7 +934,14 @@ export default function App() {
           <p className="truncate text-xs text-slate-400">Watch the infrared sky change, using real data from NASA's SPHEREx telescope</p>
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <DataSourceStatus serverOnline={serverOnline} onUpstream502={setIrsaUpstream502} />
+          <DataSourceStatus
+            serverOnline={serverOnline}
+            onUpstream502={setIrsaUpstream502}
+            onLearnMore={() => {
+              setHelpTab("sources");
+              setShowHelp(true);
+            }}
+          />
           {irsaUpstream502 && (
             <span
               role="status"

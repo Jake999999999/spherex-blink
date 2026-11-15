@@ -1,7 +1,7 @@
-import { BookOpen, RefreshCw, Settings, Sliders, X } from "lucide-react";
+import { BookOpen, Database, RefreshCw, Settings, Sliders, X } from "lucide-react";
 import type { SourceMode } from "./LiveSearch";
 
-export type HelpTab = "science" | "howto" | "settings";
+export type HelpTab = "science" | "howto" | "sources" | "settings";
 
 interface Props {
   tab: HelpTab;
@@ -59,6 +59,14 @@ export function GuideAndSettings({
             className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 font-medium ${tab === "howto" ? "bg-sky-400/20 text-sky-100" : "text-slate-400 hover:text-slate-200"}`}
           >
             <Sliders size={13} /> How to use &amp; shortcuts
+          </button>
+          <button
+            role="tab"
+            aria-selected={tab === "sources"}
+            onClick={() => onTab("sources")}
+            className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 font-medium ${tab === "sources" ? "bg-sky-400/20 text-sky-100" : "text-slate-400 hover:text-slate-200"}`}
+          >
+            <Database size={13} /> Data sources
           </button>
           <button
             role="tab"
@@ -176,6 +184,41 @@ export function GuideAndSettings({
                 {v}
               </span>
             ))}
+          </div>
+        </div>
+      )}
+
+      {tab === "sources" && (
+        <div className="space-y-3 text-slate-300">
+          <div className="rounded-md border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-amber-100">
+            <strong className="text-amber-200">Why blinking new coordinates can be unavailable:</strong>{" "}
+            Discovering individual SPHEREx exposures for a brand-new sky coordinate requires NASA/IPAC&apos;s{" "}
+            <strong>IRSA SIA / spatial ObsCore</strong> service. Two things can block it in pure browser mode:
+            (1) IRSA&apos;s SIA endpoint does not send browser CORS headers (requiring the local Python server or pasting an IRSA link), and
+            (2) when IRSA&apos;s spatial query backend is down or timing out upstream, neither browser links nor the local server can fetch new exposure lists.{" "}
+            <strong className="text-white">All 6 featured targets</strong>,{" "}
+            <strong className="text-white">Colour mode</strong> (via AWS S3), and dropping local FITS files still work normally.
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <div>
+              <h3 className="mb-1 font-semibold text-white">NASA AWS S3 (SPHEREx)</h3>
+              <p className="leading-relaxed">
+                Public Open Data mirror (<span className="mono">nasa-irsa-spherex</span>). Streams the 102-channel all-sky map directly in your browser for <strong>Colour</strong> mode and individual exposure FITS cutouts without needing IRSA&apos;s query server.
+              </p>
+            </div>
+            <div>
+              <h3 className="mb-1 font-semibold text-white">IRSA SIA / TAP / IBE</h3>
+              <p className="leading-relaxed">
+                NASA/IPAC Infrared Science Archive services. <strong>SIA</strong> lists which SPHEREx exposures cover a coordinate (needed for live <strong>Blink</strong> &amp; <strong>Diff</strong>); <strong>IBE</strong> serves 2010 WISE &amp; 2014–2024 NEOWISE cutouts for the local server.
+              </p>
+            </div>
+            <div>
+              <h3 className="mb-1 font-semibold text-white">ESA Gaia DR3 &amp; CDS Services</h3>
+              <p className="leading-relaxed">
+                <strong>Gaia DR3</strong> provides star positions, magnitudes, and proper motions. <strong>CDS Sesame</strong> resolves object names to coordinates, <strong>VizieR TAP</strong> adds 2MASS/AllWISE reference points, and <strong>Aladin Lite</strong> powers the sky-context map.
+              </p>
+            </div>
           </div>
         </div>
       )}

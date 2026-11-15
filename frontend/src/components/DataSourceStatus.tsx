@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronRight, RefreshCw, TriangleAlert } from "lucide-react";
 import { resolveRemoteDataRoot } from "../lib/bundle";
 
 export interface SourceHealth {
@@ -12,6 +12,7 @@ export interface SourceHealth {
 interface Props {
   serverOnline: boolean | null;
   onUpstream502?: (active: boolean) => void;
+  onLearnMore?: () => void;
 }
 
 const BROWSER_CHECKS: { id: string; label: string; urls: () => string[] }[] = [
@@ -30,7 +31,7 @@ const BROWSER_CHECKS: { id: string; label: string; urls: () => string[] }[] = [
   { id: "data_mirror", label: "Data Repo Mirror", urls: () => [`${resolveRemoteDataRoot()}/index.json`] },
 ];
 
-export function DataSourceStatus({ serverOnline, onUpstream502 }: Props) {
+export function DataSourceStatus({ serverOnline, onUpstream502, onLearnMore }: Props) {
   const [items, setItems] = useState<SourceHealth[]>([]);
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -149,32 +150,58 @@ export function DataSourceStatus({ serverOnline, onUpstream502 }: Props) {
         {busy ? "…" : "Ping"}
       </button>
       {expanded && (
-        <div className="panel absolute right-0 top-full z-40 mt-1.5 flex w-max max-w-[calc(100vw-2rem)] flex-wrap items-center gap-1.5 p-2.5 text-[11px] shadow-xl">
-          {items.map((it) => (
-            <span
-              key={it.id}
-              title={it.detail}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 ${
-                it.state === "up"
-                  ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-200"
-                  : it.state === "down"
-                    ? "border-amber-400/35 bg-amber-500/10 text-amber-200"
-                    : "border-white/10 bg-white/[0.03] text-slate-300"
-              }`}
-            >
+        <div className="panel absolute right-0 top-full z-40 mt-1.5 flex w-[min(42rem,calc(100vw-2rem))] flex-col gap-3 p-3 text-[11px] shadow-xl sm:flex-row sm:items-start">
+          <div className="shrink-0 rounded-md border border-amber-400/30 bg-amber-500/10 p-2.5 text-amber-100 sm:w-64">
+            <div className="flex items-start gap-1.5 font-semibold text-amber-200">
+              <TriangleAlert size={13} className="mt-0.5 shrink-0" />
+              <span>Blinking new coordinates is limited</span>
+            </div>
+            <p className="mt-1 leading-relaxed text-amber-100/90">
+              Fetching new exposure lists to blink or diff arbitrary coordinates needs NASA/IPAC&apos;s{" "}
+              <strong>IRSA SIA</strong> spatial service, which lacks browser CORS and is currently timing out upstream.
+              Featured targets &amp; <strong>Colour</strong> mode (AWS S3) still work.
+            </p>
+            {onLearnMore && (
+              <button
+                type="button"
+                onClick={() => {
+                  setExpanded(false);
+                  onLearnMore();
+                }}
+                className="mt-1.5 inline-flex items-center gap-1 font-medium text-sky-300 underline decoration-sky-400/50 underline-offset-2 hover:text-sky-200"
+              >
+                Learn more about each source →
+              </button>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            {items.map((it) => (
               <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  it.state === "up" ? "bg-emerald-400" : it.state === "down" ? "bg-amber-400" : "bg-slate-400"
+                key={it.id}
+                title={it.detail}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 ${
+                  it.state === "up"
+                    ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-200"
+                    : it.state === "down"
+                      ? "border-amber-400/35 bg-amber-500/10 text-amber-200"
+                      : "border-white/10 bg-white/[0.03] text-slate-300"
                 }`}
-              />
-              <span>{it.label}</span>
-              {it.detail && it.state !== "checking" && (
-                <span className="mono text-[10px] opacity-80">
-                  {it.state === "cors" ? "(CORS)" : it.detail.split(" · ")[0]}
-                </span>
-              )}
-            </span>
-          ))}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    it.state === "up" ? "bg-emerald-400" : it.state === "down" ? "bg-amber-400" : "bg-slate-400"
+                  }`}
+                />
+                <span>{it.label}</span>
+                {it.detail && it.state !== "checking" && (
+                  <span className="mono text-[10px] opacity-80">
+                    {it.state === "cors" ? "(CORS)" : it.detail.split(" · ")[0]}
+                  </span>
+                )}
+              </span>
+            ))}
+          </div>
         </div>
       )}
     </div>
