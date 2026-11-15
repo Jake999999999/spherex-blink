@@ -18,30 +18,39 @@ export interface LiveResult {
   shared?: boolean;
 }
 
+export type SourceMode = "auto" | "browser" | "server";
+
 interface Props {
   onReady: (r: LiveResult) => void;
   /** start immediately (from ?ra=&dec=&fov= in the URL) */
   autostart?: { ra: number; dec: number; fov: number; name?: string } | null;
+  sourceMode?: SourceMode;
+  serverOnline?: boolean | null;
+  onSwitchMode?: (m: SourceMode) => void;
+  onCheckServer?: () => void;
 }
 
 /**
  * "Any spot in the sky": a name or coordinates plus a field size, fetched live from NASA's archives by the
  * local server, processed with the same pipeline as the built-in targets.
  */
-export function LiveSearch({ onReady, autostart }: Props) {
+export function LiveSearch({ onReady, autostart, sourceMode = "auto", serverOnline, onSwitchMode, onCheckServer }: Props) {
   const [text, setText] = useState("");
   const [fov, setFov] = useState(5);
   const [quick, setQuick] = useState(true);
-  const [available, setAvailable] = useState<boolean | null>(null);
+  const [localAvail, setLocalAvail] = useState<boolean | null>(null);
   const [job, setJob] = useState<JobView | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const pending = useRef<{ name: string; ra: number; dec: number; fov: number } | null>(null);
 
   useEffect(() => {
-    if (FORCE_BROWSER) setAvailable(false);
-    else liveAvailable().then(setAvailable);
-  }, []);
+    if (serverOnline !== undefined) return;
+    if (FORCE_BROWSER) setLocalAvail(false);
+    else liveAvailable().then(setLocalAvail);
+  }, [serverOnline]);
+
+  const available = serverOnline !== undefined ? serverOnline : localAvail;
 
   const go = async (ra: number, dec: number, f: number, name: string) => {
     setErr(null);
@@ -104,8 +113,32 @@ export function LiveSearch({ onReady, autostart }: Props) {
     }
   };
 
-  // no local server (e.g. the public site): build fields in this browser from NASA's S3 copy instead
-  if (available === false) return <BrowserFetch onReady={onReady} autostart={autostart} />;
+  // browser-only mode (explicitly chosen, ?browser, or auto fallback when local server is offline)
+  if (FORCE_BROWSER || sourceMode === "browser" || (sourceMode === "auto" && available === false)) {
+    return <BrowserFetch onReady={onReady} autostart={autostart} />;
+  }
+  if (sourceMode === "server" && available === false) {
+    return (
+      <div className="mx-4 mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+        <span>
+          Local server (<code className="mono">127.0.0.1:8091</code>) is not running. Start it with{" "}
+          <code className="mono rounded bg-black/30 px-1.5 py-0.5">uv run python -m spherex_blink serve</code>.
+        </span>
+        <div className="flex gap-2">
+          {onCheckServer && (
+            <button type="button" onClick={onCheckServer} className="rounded border border-amber-300/40 px-2.5 py-1 hover:bg-amber-400/15">
+              Retry
+            </button>
+          )}
+          {onSwitchMode && (
+            <button type="button" onClick={() => onSwitchMode("browser")} className="rounded bg-sky-400 px-2.5 py-1 font-medium text-slate-950 hover:bg-sky-300">
+              Use browser mode instead
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   const last = job?.log.at(-1);
   return (

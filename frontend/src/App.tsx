@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RotateCcw, Compass, Route, Keyboard, TriangleAlert, Activity, ChevronRight, Download, Send } from "lucide-react";
+import { RotateCcw, Compass, Route, BookOpen, Settings, TriangleAlert, Activity, ChevronRight, Download, Send } from "lucide-react";
 import { buildFits, card, download, longCards, wcsCards } from "./lib/fitsio";
+import { liveAvailable } from "./lib/live";
 import { sendViaSamp } from "./lib/samp";
 import { GAIA_G_LIMIT, SkyCanvas, formatHover, type HoverInfo, type SkyCanvasHandle } from "./components/SkyCanvas";
 import { SpectrumPanel, type MapOverlay, type PanelTab } from "./components/SpectrumPanel";
@@ -18,7 +19,8 @@ import { WavelengthPicker } from "./components/WavelengthPicker";
 import { blinkSteps, epochsWithBand, layerOf, matchedLayer, stepPlane, type Step } from "./lib/sequence";
 import { diffLimit, levelsFor, subtract } from "./lib/stretch";
 import { DEFAULT_STATE, parseLive, parseState, serializeState, type ViewState } from "./lib/urlState";
-import { LiveSearch, type LiveResult } from "./components/LiveSearch";
+import { LiveSearch, type LiveResult, type SourceMode } from "./components/LiveSearch";
+import { GuideAndSettings, type HelpTab } from "./components/GuideAndSettings";
 import { liveBase, FORCE_BROWSER } from "./lib/live";
 import { COLORMAPS, COLORMAP_LABELS, buildLut, type ColormapName } from "./gl/colormaps";
 import { formatMjdMonth, formatMjdRange, mjdToYear, propagate } from "./lib/astro";
@@ -82,6 +84,27 @@ export default function App() {
   const [hi, setHi] = useState(99.8);
   const [smooth, setSmooth] = useState(true);
   const [showHelp, setShowHelp] = useState(false);
+  const [helpTab, setHelpTab] = useState<HelpTab>("science");
+  const [sourceMode, setSourceMode] = useState<SourceMode>(() => {
+    const saved = storage.get("spherex-blink.sourceMode");
+    return saved === "browser" || saved === "server" ? saved : "auto";
+  });
+  const [serverOnline, setServerOnline] = useState<boolean | null>(null);
+  const checkServer = useCallback(() => {
+    if (FORCE_BROWSER) {
+      setServerOnline(false);
+      return;
+    }
+    setServerOnline(null);
+    liveAvailable().then(setServerOnline);
+  }, []);
+  useEffect(() => {
+    checkServer();
+  }, [checkServer]);
+  const updateSourceMode = useCallback((m: SourceMode) => {
+    setSourceMode(m);
+    storage.set("spherex-blink.sourceMode", m);
+  }, []);
   const [shortcutsOn, setShortcutsOn] = useState(() => storage.get("spherex-blink.shortcuts") !== "off");
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [diffPct, setDiffPct] = useState(99.8);
@@ -714,51 +737,59 @@ export default function App() {
             </button>
           )}
           <button
-            onClick={() => setShowHelp((h) => !h)}
-            aria-expanded={showHelp}
+            onClick={() => {
+              if (showHelp && helpTab !== "settings") setShowHelp(false);
+              else {
+                setHelpTab("science");
+                setShowHelp(true);
+              }
+            }}
+            aria-expanded={showHelp && helpTab !== "settings"}
             className="inline-flex items-center gap-1.5 rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-300 hover:bg-white/5"
           >
-            <Keyboard size={14} /> Help
+            <BookOpen size={14} /> Guide
+          </button>
+          <button
+            onClick={() => {
+              if (showHelp && helpTab === "settings") setShowHelp(false);
+              else {
+                setHelpTab("settings");
+                setShowHelp(true);
+              }
+            }}
+            aria-expanded={showHelp && helpTab === "settings"}
+            className="inline-flex items-center gap-1.5 rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-300 hover:bg-white/5"
+          >
+            <Settings size={14} /> Settings
           </button>
         </div>
       </header>
       {showHelp && (
-        <div className="mx-4 mb-2 grid gap-x-6 gap-y-1 rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-300 sm:grid-cols-2 lg:grid-cols-4">
-          <p className="sm:col-span-2 lg:col-span-4 text-slate-400">
-            Each frame is one visit of NASA's SPHEREx telescope to this patch of sky. Blink between visits to spot what moves; switch to Difference to see only what changed.
-            Click a star for its spectrum and light curve. Scroll to zoom, drag to pan.
-          </p>
-          {[
-            ["Space", "play / pause"],
-            ["← →", "previous / next frame"],
-            ["D", "blink ↔ difference"],
-            ["C", "colour view"],
-            ["N / Shift+N", "next / previous measured star"],
-            ["G", "Gaia star markers"],
-            ["P", "smooth ↔ raw pixels"],
-            ["R", "reset zoom"],
-            ["Esc", "close the spectrum"],
-          ].map(([k, v]) => (
-            <span key={k} className={shortcutsOn || k === "Esc" ? "" : "opacity-40"}>
-              <kbd className="mono mr-2 rounded border border-white/20 px-1.5 py-0.5 text-[11px] text-white">{k}</kbd>
-              {v}
-            </span>
-          ))}
-          <label className="flex items-center gap-2 sm:col-span-2 lg:col-span-4">
-            <input
-              type="checkbox"
-              checked={shortcutsOn}
-              onChange={(e) => {
-                setShortcutsOn(e.target.checked);
-                storage.set("spherex-blink.shortcuts", e.target.checked ? "on" : "off");
-              }}
-            />
-            Single-key shortcuts (turn off if you use speech input or they get in the way)
-          </label>
-        </div>
+        <GuideAndSettings
+          tab={helpTab}
+          onTab={setHelpTab}
+          onClose={() => setShowHelp(false)}
+          sourceMode={sourceMode}
+          onSourceMode={updateSourceMode}
+          serverOnline={serverOnline}
+          onCheckServer={checkServer}
+          forceBrowser={FORCE_BROWSER}
+          shortcutsOn={shortcutsOn}
+          onShortcuts={(on) => {
+            setShortcutsOn(on);
+            storage.set("spherex-blink.shortcuts", on ? "on" : "off");
+          }}
+        />
       )}
 
-      <LiveSearch onReady={onLiveReady} autostart={initialLive} />
+      <LiveSearch
+        onReady={onLiveReady}
+        autostart={initialLive}
+        sourceMode={sourceMode}
+        serverOnline={serverOnline}
+        onSwitchMode={updateSourceMode}
+        onCheckServer={checkServer}
+      />
       <div data-tour="targets">
         <TargetBar targets={[...index, ...liveEntries]} current={m.id} onPick={(id) => set({ target: id })} />
       </div>

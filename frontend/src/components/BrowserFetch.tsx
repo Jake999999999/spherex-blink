@@ -8,6 +8,7 @@ import { resolveNameInBrowser, startBrowserBuild, type BuildHandle } from "../li
 import type { CubeDesc } from "../lib/colour";
 import type { LiveResult } from "./LiveSearch";
 import { claimAutostart } from "../lib/live";
+import { TargetListStepper } from "./TargetListStepper";
 
 interface Props {
   onReady: (r: LiveResult) => void;
@@ -214,9 +215,12 @@ export function BrowserFetch({ onReady, autostart }: Props) {
             <X size={13} /> Stop
           </button>
         ) : (
-          <button type="submit" className="rounded-md bg-sky-400 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-sky-300">
-            Fetch from NASA
-          </button>
+          <>
+            <TargetListStepper onSelect={(q) => setText(q)} />
+            <button type="submit" className="rounded-md bg-sky-400 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-sky-300">
+              Fetch from NASA
+            </button>
+          </>
         )}
       </form>
 
