@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SPHEREx Blink — 7-Slide Pitch Deck</title>
+  <style>
+    :root {
+      --bg: #030712;
+      --panel: #0b1222;
+      --border: rgba(148, 163, 184, 0.18);
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --sky: #38bdf8;
+      --amber: #fbbf24;
+      --cyan: #22d3ee;
+      --emerald: #34d399;
+      --pink: #f472b6;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #02040a;
+      color: var(--text);
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Top toolbar (hidden when printing) */
+    .toolbar {
+      position: fixed;
+      top: 12px;
+      right: 16px;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(11, 18, 34, 0.9);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 6px 12px;
+      font-size: 12px;
+      backdrop-filter: blur(8px);
+    }
+    .toolbar button {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .toolbar button:hover { background: rgba(56, 189, 248, 0.2); border-color: var(--sky); }
+    .toolbar button.primary { background: var(--sky); color: #020617; font-weight: 600; border-color: var(--sky); }
+    .toolbar span { color: var(--muted); padding: 0 4px; }
+
+    /* Deck layout */
+    .deck {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 28px;
+      padding: 56px 24px 48px;
+    }
+
+    .slide {
+      width: 1280px;
+      height: 720px;
+      max-width: 100%;
+      background: radial-gradient(circle at 85% 15%, rgba(56, 189, 248, 0.12), transparent 42%),
+                  radial-gradient(circle at 12% 88%, rgba(251, 191, 36, 0.08), transparent 40%),
+                  var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 48px 56px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+    }
+
+    .slide-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+      padding-bottom: 14px;
+      margin-bottom: 24px;
+    }
+    .kicker {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--sky);
+    }
+    .slide-num {
+      font-size: 12px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    h1 { font-size: 54px; line-height: 1.08; letter-spacing: -0.02em; font-weight: 800; }
+    h2 { font-size: 36px; line-height: 1.15; letter-spacing: -0.015em; font-weight: 750; margin-bottom: 10px; }
+    h3 { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+    p { color: #cbd5e1; line-height: 1.5; font-size: 16px; }
+    .lead { font-size: 21px; color: #cbd5e1; line-height: 1.45; max-width: 820px; }
+
+    .badges { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 7px 14px; border-radius: 999px; font-size: 13px; font-weight: 600;
+      background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); color: #e0f2fe;
+    }
+    .badge.amber { background: rgba(251, 191, 36, 0.12); border-color: rgba(251, 191, 36, 0.35); color: #fef3c7; }
+    .badge.emerald { background: rgba(52, 211, 153, 0.12); border-color: rgba(52, 211, 153, 0.35); color: #d1fae5; }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+
+    .card {
+      background: rgba(15, 23, 42, 0.72);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px 22px;
+    }
+    .card.highlight { border-color: rgba(56, 189, 248, 0.45); background: rgba(14, 116, 144, 0.14); }
+    .card p { font-size: 14.5px; }
+
+    .stat { font-size: 42px; font-weight: 800; line-height: 1.05; margin-bottom: 6px; }
+    .sky { color: var(--sky); }
+    .amber { color: var(--amber); }
+    .cyan { color: var(--cyan); }
+    .emerald { color: var(--emerald); }
+    .pink { color: var(--pink); }
+
+    ul.clean { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+    ul.clean li {
+      position: relative;
+      padding-left: 18px;
+      font-size: 15px;
+      line-height: 1.45;
+      color: #cbd5e1;
+    }
+    ul.clean li::before {
+      content: "•";
+      position: absolute;
+      left: 0;
+      color: var(--sky);
+      font-weight: 700;
+    }
+
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-top: 1px solid rgba(148, 163, 184, 0.12);
+      padding-top: 12px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* Presentation mode (single slide centered) */
+    body.present { overflow: hidden; }
+    body.present .deck { padding: 0; height: 100vh; justify-content: center; }
+    body.present .slide { display: none; border-radius: 0; border: none; width: 100vw; height: 100vh; }
+    body.present .slide.active { display: flex; }
+
+    /* Print / Save as PDF: exact 16:9 7-page PDF */
+    @page { size: 1280px 720px; margin: 0; }
+    @media print {
+      body { background: var(--bg); }
+      .toolbar { display: none !important; }
+      .deck { padding: 0; gap: 0; display: block; }
+      .slide {
+        display: flex !important;
+        width: 1280px;
+        height: 720px;
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+        page-break-after: always;
+        break-after: page;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .slide:last-child { page-break-after: auto; break-after: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button id="prevBtn" title="Previous slide (←)">← Prev</button>
+    <span id="counter">All 7 slides</span>
+    <button id="nextBtn" title="Next slide (→)">Next →</button>
+    <button id="modeBtn" title="Toggle single-slide presentation mode">Present</button>
+    <button id="printBtn" class="primary" title="Export 7-page widescreen PDF">Export PDF</button>
+  </div>
+
+  <main class="deck">
+    <!-- SLIDE 1: TITLE -->
+    <section class="slide active">
+      <div class="slide-header">
+        <span class="kicker">NASA Space Apps Challenge 2026 · Entry Pitch</span>
+        <span class="slide-num">01 / 07</span>
+      </div>
+
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:40px; my:auto;">
+        <div style="flex:1;">
+          <div style="display:flex; align-items:center; gap:14px; margin-bottom:18px;">
+            <svg width="48" height="48" viewBox="0 0 28 28" aria-hidden="true">
+              <circle cx="14" cy="14" r="12" fill="none" stroke="#38bdf8" stroke-opacity="0.55" stroke-width="1.4" />
+              <circle cx="14" cy="14" r="5" fill="#38bdf8" />
+              <circle cx="22" cy="8" r="2.2" fill="#fbbf24" />
+            </svg>
+            <span style="font-size:15px; font-weight:600; color:var(--sky); letter-spacing:0.04em;">BROWSER-NATIVE INFRARED SKY EXPLORER</span>
+          </div>
+          <h1>SPHEREx Blink</h1>
+          <p class="lead" style="margin-top:14px;">
+            Watch the infrared sky change over 16 years—turning real NASA SPHEREx, WISE, and NEOWISE data into an instant time-lapse, difference detector, and 102-channel spectrometer.
+          </p>
+          <div class="badges">
+            <span class="badge">102 IR Channels (0.75–5.0 µm)</span>
+            <span class="badge amber">16-Year Baseline (2010–2026)</span>
+            <span class="badge emerald">Zero Simulated Data</span>
+          </div>
+        </div>
+
+        <div class="card highlight" style="width:360px; flex-shrink:0;">
+          <h3 class="sky" style="margin-bottom:12px;">At a Glance</h3>
+          <ul class="clean">
+            <li><strong>Zero install:</strong> Streams real FITS cutouts directly from NASA IRSA on AWS S3.</li>
+            <li><strong>4 interactive views:</strong> Blink, Single-band, Wavelength-Matched Difference, &amp; 102-band False Colour.</li>
+            <li><strong>Click any star:</strong> 102-channel spectrum, light curve, proper motion &amp; sound.</li>
+            <li><strong>Science-ready exports:</strong> FITS (WCS), CSV/ECSV, IVOA SAMP, GIF &amp; PNG figures.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer">
+        <span>Live App: https://jake999999999.github.io/spherex-blink/</span>
+        <span>Not a NASA product · Built with real public NASA &amp; ESA archives</span>
+      </div>
+    </section>
+
+    <!-- SLIDE 2: THE PROBLEM & SOLUTION -->
+    <section class="slide">
+      <div class="slide-header">
+        <span class="kicker">01 · The Challenge &amp; Solution</span>
+        <span class="slide-num">02 / 07</span>
+      </div>
+
+      <div>
+        <h2>Making 102-Band All-Sky Infrared Data Effortless</h2>
+        <p class="lead">SPHEREx maps the entire sky every six months across 6 detectors and 102 wavelengths—an extraordinary dataset locked behind heavy FITS pipelines.</p>
+      </div>
+
+      <div class="grid-2" style="margin-top:8px;">
+        <div class="card">
+          <h3 class="amber">The Barrier Today</h3>
+          <ul class="clean" style="margin-top:12px;">
+            <li><strong>Raw FITS friction:</strong> Exploring multi-epoch spectral exposures requires downloading gigabytes of files and writing custom Astropy scripts.</li>
+            <li><strong>Hard to spot subtle change:</strong> Proper motion across 6-month SPHEREx visits is only 1–2 pixels, easy to miss without historical context.</li>
+            <li><strong>Colour fakes variability:</strong> Subtracting exposures taken at different wavelengths leaves 10–15% false residuals around every normal star.</li>
+          </ul>
+        </div>
+
+        <div class="card highlight">
+          <h3 class="sky">How SPHEREx Blink Solves It</h3>
+          <ul class="clean" style="margin-top:12px;">
+            <li><strong>Instant browser streaming:</strong> Fetches only the needed sky rows from NASA's public AWS S3 mirror—or runs with a local Python server for full archive queries.</li>
+            <li><strong>16-year blink timeline:</strong> Pairs 2010 AllWISE and 2014–2024 NEOWISE frames with 2025–2026 SPHEREx visits so slow stars visibly glide.</li>
+            <li><strong>Wavelength-matched subtraction:</strong> Compares visits at matching wavelengths first, cancelling steady stars cleanly so movers &amp; variables pop out.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer">
+        <span>SPHEREx Blink · Challenge Alignment</span>
+        <span>02 / 07</span>
+      </div>
+    </section>
+
+    <!-- SLIDE 3: HOW IT WORKS (4 CORE MODES) -->
+    <section class="slide">
+      <div class="slide-header">
+        <span class="kicker">02 · Core Capabilities</span>
+        <span class="slide-num">03 / 07</span>
+      </div>
+
+      <div>
+        <h2>Four Ways to Explore Any Patch of Sky</h2>
+        <p>Search any star name (CDS Sesame) or RA/Dec coordinates (2′–15′ FOV) and switch seamlessly between views.</p>
+      </div>
+
+      <div class="grid-4" style="margin-top:12px;">
+        <div class="card">
+          <div class="stat sky" style="font-size:28px;">01 · Blink</div>
+          <h3>16-Year Time-Lapse</h3>
+          <p style="margin-top:8px;">Flips across WISE (2010), NEOWISE (2014–2024), and SPHEREx visits at a safe ≤ 3 Hz rate—just like how Pluto was discovered.</p>
+        </div>
+
+        <div class="card">
+          <div class="stat amber" style="font-size:28px;">02 · Diff</div>
+          <h3>Spot What Changed</h3>
+          <p style="margin-top:8px;">Subtracts older visits from newer ones. Static stars vanish; moving stars leave an <strong class="amber">amber</strong> / <strong class="cyan">cyan</strong> pair; brightening stars turn amber.</p>
+        </div>
+
+        <div class="card">
+          <div class="stat pink" style="font-size:28px;">03 · Colour</div>
+          <h3>102-Band Composites</h3>
+          <p style="margin-top:8px;">Paints 3 custom wavelength windows as R/G/B with presets for <strong>Methane</strong>, <strong>Water</strong>, and <strong>Warm Dust</strong>—revealing chemistry at a glance.</p>
+        </div>
+
+        <div class="card">
+          <div class="stat emerald" style="font-size:28px;">04 · Spectra</div>
+          <h3>102-Channel Plots</h3>
+          <p style="margin-top:8px;">Click any star for per-exposure spectra, light curves, Gaia proper-motion fits, VizieR 2MASS/WISE points, blackbody curves &amp; redshift <em>z</em>.</p>
+        </div>
+      </div>
+
+      <div class="card" style="display:flex; align-items:center; justify-content:space-between; padding:14px 22px;">
+        <span style="font-size:14px; color:#cbd5e1;"><strong class="sky">Plus:</strong> Collapsible <strong>Aladin Lite</strong> sky-context finder chart (AllWISE / 2MASS / DSS2 + 400 clickable Gaia DR3 stars) &amp; live <strong>Data Source Health</strong> monitor.</span>
+      </div>
+
+      <div class="footer">
+        <span>GPU-accelerated WebGL2 stretching · Interactive Guided Tour</span>
+        <span>03 / 07</span>
+      </div>
+    </section>
+
+    <!-- SLIDE 4: REAL SCIENCE IN ACTION -->
+    <section class="slide">
+      <div class="slide-header">
+        <span class="kicker">03 · Real Science Examples</span>
+        <span class="slide-num">04 / 07</span>
+      </div>
+
+      <div>
+        <h2>Featured Targets Included Out of the Box</h2>
+        <p>Each built-in target demonstrates a distinct astrophysical signature using real SPHEREx, WISE, NEOWISE, and Gaia DR3 data.</p>
+      </div>
+
+      <div class="grid-3" style="margin-top:10px;">
+        <div class="card">
+          <h3 class="sky">Barnard's Star</h3>
+          <p style="font-size:12px; color:var(--amber); margin-bottom:8px;">HIGH PROPER MOTION · 10.3″/yr</p>
+          <p>Crosses nearly <strong>3 arcminutes</strong> between 2010 WISE and 2026 SPHEREx. Blinking turns its motion into an unmistakable glide across the field.</p>
+        </div>
+
+        <div class="card">
+          <h3 class="pink">Epsilon Indi B</h3>
+          <p style="font-size:12px; color:var(--amber); margin-bottom:8px;">METHANE BROWN DWARFS · T1 / T6</p>
+          <p>Methane (CH₄) and water (H₂O) swallow green light in the Methane preset, making the brown dwarfs glow <strong>pink</strong> while normal stars stay blue-white.</p>
+        </div>
+
+        <div class="card">
+          <h3 class="amber">WISE 0855−0714</h3>
+          <p style="font-size:12px; color:var(--amber); margin-bottom:8px;">COLDEST BROWN DWARF · ~250 K</p>
+          <p>Invisible at short near-IR bands (D1–D4), then emerges clearly at <strong>4–5 µm (D6)</strong> as thermal emission peaks in the mid-infrared.</p>
+        </div>
+      </div>
+
+      <div class="grid-2" style="margin-top:4px;">
+        <div class="card">
+          <h3 class="cyan">R Draconis &amp; NEP-LPV</h3>
+          <p>Long-period pulsating giants whose brightness swings dramatically over ~1 year—tracked in Difference view and per-epoch light curves (with ring photometry for saturated cores).</p>
+        </div>
+        <div class="card">
+          <h3 class="emerald">RW Aurigae</h3>
+          <p>Young T Tauri binary surrounded by dusty circumstellar material that dims and brightens unpredictably in the infrared.</p>
+        </div>
+      </div>
+
+      <div class="footer">
+        <span>All 5 challenge benchmark targets + NEP-LPV pre-baked and verified</span>
+        <span>04 / 07</span>
+      </div>
+    </section>
+
+    <!-- SLIDE 5: VALIDATION & SCIENTIFIC HONESTY -->
+    <section class="slide">
+      <div class="slide-header">
+        <span class="kicker">04 · Accuracy &amp; Scientific Rigor</span>
+        <span class="slide-num">05 / 07</span>
+      </div>
+
+      <div>
+        <h2>Checked Against NASA &amp; ESA Reference Catalogs</h2>
+        <p>Every measurement in SPHEREx Blink is automatically validated against 2MASS, AllWISE, and ESA Gaia DR3.</p>
+      </div>
+
+      <div class="grid-3" style="margin-top:10px;">
+        <div class="card highlight">
+          <div class="stat sky">&lt; 3%</div>
+          <h3>Flux Calibration</h3>
+          <p style="margin-top:6px;">Median PSF-fitted brightness agrees within <strong>3%</strong> of 2MASS (27 stars) and AllWISE (9 stars), with 1–4% star-to-star scatter.</p>
+        </div>
+
+        <div class="card highlight">
+          <div class="stat emerald">&lt; 0.7″</div>
+          <h3>Astrometric Precision</h3>
+          <p style="margin-top:6px;">Measured star positions sit within a tenth of a SPHEREx pixel (6.2″/px) of ESA Gaia DR3 epoch-propagated coordinates.</p>
+        </div>
+
+        <div class="card highlight">
+          <div class="stat amber">1.3%</div>
+          <h3>Proper Motion Fit</h3>
+          <p style="margin-top:6px;">Centroid-tracked stellar velocities across the 16-year baseline match Gaia DR3 proper motions within <strong>1.3%</strong>.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Built-In Guardrails for Honest Data</h3>
+        <div class="grid-2" style="margin-top:8px; gap:16px;">
+          <ul class="clean">
+            <li><strong>Saturated cores:</strong> Automatically detected and switched to annular ring photometry instead of failing silently.</li>
+            <li><strong>Blank-band honesty:</strong> Colour view refuses to fake RGB ratios where a wavelength window lacks coverage.</li>
+          </ul>
+          <ul class="clean">
+            <li><strong>Contamination flags:</strong> Toggleable overlay highlights cosmic rays, ghosts, and halos from SPHEREx bitmasks.</li>
+            <li><strong>Calibrated errors:</strong> Two-part error model combining per-detector noise floors and steady-star scatter.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer">
+        <span>92 automated frontend tests + Python Astropy validation suite</span>
+        <span>05 / 07</span>
+      </div>
+    </section>
+
+    <!-- SLIDE 6: EXPORTS, ACCESSIBILITY & ARCHITECTURE -->
+    <section class="slide">
+      <div class="slide-header">
+        <span class="kicker">05 · Exports, Accessibility &amp; Tech Stack</span>
+        <span class="slide-num">06 / 07</span>
+      </div>
+
+      <div>
+        <h2>Designed for Astronomers and Everyday Explorers</h2>
+      </div>
+
+      <div class="grid-2" style="margin-top:8px;">
+        <div class="card">
+          <h3 class="sky">Scientist-Grade Exports &amp; Interop</h3>
+          <ul class="clean" style="margin-top:10px;">
+            <li><strong>Standard FITS:</strong> Full WCS headers (<code>CRVAL</code>, <code>CRPIX</code>, <code>CDELT</code>), MJD &amp; provenance comments.</li>
+            <li><strong>CSV / ECSV Tables:</strong> Per-exposure fluxes (<code>mJy</code>, <code>AB mag</code>, <code>λF_λ</code>), 1σ errors &amp; <code>obs_id</code>.</li>
+            <li><strong>IVOA SAMP:</strong> One-click broadcast to <strong>TOPCAT</strong> &amp; <strong>Aladin Desktop</strong>.</li>
+            <li><strong>Export Studio:</strong> Looping GIFs, 2×2 Colour Preset grids, &amp; Spectrum-annotated PNGs.</li>
+            <li><strong>Reproducible URLs:</strong> Share exact coordinates, mode &amp; band via link.</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <h3 class="emerald">Accessibility &amp; Architecture</h3>
+          <ul class="clean" style="margin-top:10px;">
+            <li><strong>Web Audio Sonification:</strong> Listen to absorption dips &amp; light-curve pulsations as pitch, paired with plain-language summaries.</li>
+            <li><strong>Interactive Spotlight Tour:</strong> Multi-region guided walkthrough with pointer arrows.</li>
+            <li><strong>Frontend:</strong> TypeScript, React 19, WebGL2, Tailwind CSS, Vite, Bun, Aladin Lite v3.</li>
+            <li><strong>Pipeline:</strong> Python 3.12, Astropy, NumPy, SciPy, HTTPX, <code>uv</code>.</li>
+            <li><strong>AI Disclosure:</strong> All code AI-generated with <strong>Opus 5.5</strong> &amp; <strong>Gemini 4 Hydrogen</strong>.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer">
+        <span>Safe blink rate ≤ 3 Hz · Full keyboard shortcuts · Live Archive Health Ping</span>
+        <span>06 / 07</span>
+      </div>
+    </section>
+
+    <!-- SLIDE 7: IMPACT & DATA SOURCES -->
+    <section class="slide">
+      <div class="slide-header">
+        <span class="kicker">06 · Impact &amp; Data Attribution</span>
+        <span class="slide-num">07 / 07</span>
+      </div>
+
+      <div class="grid-2" style="align-items:center; gap:28px;">
+        <div>
+          <h2>Why It Matters</h2>
+          <p class="lead" style="margin-top:10px; font-size:18px;">
+            As SPHEREx surveys the entire sky every six months, turning raw 102-band infrared exposures into an intuitive visual &amp; audio experience bridges the gap between archival data and human curiosity.
+          </p>
+          <ul class="clean" style="margin-top:18px;">
+            <li><strong>For researchers:</strong> Rapid multi-epoch triage, FITS/ECSV export, and instant SAMP handoff.</li>
+            <li><strong>For students &amp; educators:</strong> Zero-setup discovery of proper motion, brown dwarfs, and molecular absorption.</li>
+          </ul>
+        </div>
+
+        <div class="card highlight">
+          <h3 class="sky" style="margin-bottom:10px;">NASA &amp; Partner Resources</h3>
+          <ul class="clean">
+            <li><strong>NASA SPHEREx Open Data:</strong> AWS S3 &amp; IRSA SIA/TAP</li>
+            <li><strong>NASA AllWISE &amp; NEOWISE-R:</strong> 2010–2024 infrared frames</li>
+            <li><strong>NASA 2MASS:</strong> J/H/Ks reference photometry</li>
+            <li><strong>ESA Gaia DR3:</strong> Astrometry, proper motions &amp; G mags</li>
+            <li><strong>CDS Strasbourg:</strong> Sesame, VizieR TAP &amp; Aladin Lite v3</li>
+          </ul>
+          <div style="margin-top:16px; padding-top:12px; border-top:1px solid var(--border); font-size:13px; color:#e0f2fe;">
+            <div><strong>Try it live:</strong> jake999999999.github.io/spherex-blink</div>
+            <div style="color:var(--muted); margin-top:4px;">github.com/Jake999999999/spherex-blink</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer">
+        <span>SPHEREx Blink · NASA Space Apps Challenge 2026</span>
+        <span>Thank you · 07 / 07</span>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const slides = Array.from(document.querySelectorAll(".slide"));
+    const counter = document.getElementById("counter");
+    const modeBtn = document.getElementById("modeBtn");
+    let idx = 0;
+
+    function show(i) {
+      idx = ((i % slides.length) + slides.length) % slides.length;
+      slides.forEach((s, k) => s.classList.toggle("active", k === idx));
+      if (document.body.classList.contains("present")) {
+        counter.textContent = `Slide ${idx + 1} / ${slides.length}`;
+      } else {
+        counter.textContent = `All ${slides.length} slides`;
+        slides[idx].scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
+
+    document.getElementById("prevBtn").onclick = () => show(idx - 1);
+    document.getElementById("nextBtn").onclick = () => show(idx + 1);
+    document.getElementById("printBtn").onclick = () => {
+      document.body.classList.remove("present");
+      window.print();
+    };
+    modeBtn.onclick = () => {
+      document.body.classList.toggle("present");
+      modeBtn.textContent = document.body.classList.contains("present") ? "Overview" : "Present";
+      show(idx);
+    };
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); show(idx + 1); }
+      if (e.key === "ArrowLeft") { e.preventDefault(); show(idx - 1); }
+    });
+  </script>
+</body>
+</html>
