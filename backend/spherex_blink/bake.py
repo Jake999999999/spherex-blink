@@ -108,7 +108,7 @@ def subsample_by_visit(exps: list[irsa.Exposure], per_cell: int, visits_max: int
         idx = np.unique(np.round(np.linspace(0, len(groups) - 1, visits_max)).astype(int))
         groups = [groups[i] for i in idx]
     out = []
-    for g in groups:
+    for v, g in enumerate(groups):
         for d in range(1, 7):
             ed = sorted((exps[i] for i in g if exps[i].detector == d), key=lambda e: e.mjd)
             if len(ed) <= per_cell:
@@ -116,7 +116,13 @@ def subsample_by_visit(exps: list[irsa.Exposure], per_cell: int, visits_max: int
             else:
                 k = np.unique(np.round(np.linspace(0, len(ed) - 1, per_cell)).astype(int))
                 out.extend(ed[i] for i in k)
+            for e in ed:
+                VISIT_OF[e.did] = v
     return sorted(out, key=lambda e: (e.mjd, e.detector))
+
+
+# visit chosen by subsample_by_visit for each exposure (did -> visit), so the bake groups exactly as sampled
+VISIT_OF: dict[str, int] = {}
 
 
 def midpoint(p1: tuple[float, float], p2: tuple[float, float]) -> tuple[float, float]:
@@ -299,7 +305,12 @@ def bake_target(t: Target, client: httpx.Client | None = None, out_root: Path = 
                         bits[nm] = int(((ex.flags >> b) & 1).sum())
             flag_of.append((np.where(cov, badf, np.nan), int(ex.flags.size if ex.flags is not None else 0), bits))
 
-        groups = frames.group_epochs([e.mjd for e, *_ in loaded])
+        if t.per_cell and all(e.did in VISIT_OF for e, *_ in loaded):
+            # keep the visits the sampler picked: re-grouping by gaps can split or merge continuous coverage
+            vis = sorted({VISIT_OF[e.did] for e, *_ in loaded})
+            groups = [[i for i, (e, *_) in enumerate(loaded) if VISIT_OF[e.did] == v] for v in vis]
+        else:
+            groups = frames.group_epochs([e.mjd for e, *_ in loaded])
         assert len(wave_of) == len(loaded)
         E = len(groups)
         if E < 2:

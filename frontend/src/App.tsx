@@ -224,7 +224,9 @@ export default function App() {
   const flagEpoch = state.mode === "diff" ? state.t2 : step?.kind === "spherex" ? step.epoch : -1;
   const flagsOnScreen = showFlags && bundle && flagEpoch >= 0 && state.mode !== "colour" ? flagPlaneOf(bundle, flagEpoch, state.band) : null;
   const flagSummary = bundle?.meta.flags?.summary?.[flagEpoch]?.[state.band - 1] ?? null;
-  const cube = (colourSource === "fine" ? bundle?.finecube : null) ?? bundle?.cube ?? null;
+  // our map only when it is (nearly) complete: a quick look has too few exposures to fill every channel
+  const fineComplete = ((bundle?.meta.finecube as { coverage?: { median_pixel_fill?: number } } | null | undefined)?.coverage?.median_pixel_fill ?? 0) >= 0.9;
+  const cube = (colourSource === "fine" && fineComplete ? bundle?.finecube : null) ?? bundle?.cube ?? bundle?.finecube ?? null;
   const isColour = state.mode === "colour" && !!cube;
   // One brightness scale for all three colours ("true ratios"): a colour then means more light at that
   // wavelength. Black at the sky level (median), white near the brightest star; the renderer stretches
@@ -990,7 +992,7 @@ export default function App() {
                   </button>
                 ))}
               </div>
-              {bundle.finecube && bundle.cube && (
+              {bundle.finecube && bundle.cube && fineComplete && (
                 <div className="mb-3 grid grid-cols-2 gap-1 rounded-lg bg-white/[0.04] p-1 text-xs">
                   {(
                     [
