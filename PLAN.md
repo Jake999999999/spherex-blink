@@ -289,8 +289,23 @@ Progress (2026-11-15):
 - **S6 done (2026-11-15):** forced ePSF fits (official EPSF tables, read by Range from S3, ~24 MB), Gaia neighbours fitted jointly; catalogue scatter 3-7% -> 1-4%, repeatability unchanged; app default with aperture fallback for saturated stars. Shared fields: the files of a pipeline bundle can be dropped on the public site (labelled unverified). Public docs: docs/GET-THE-DATA.md, docs/ROADMAP.md.
 - Next: SAMP once hosted; accessibility audit (on the public roadmap; owner said hold for now); static coverage index (HEALPix-sharded, built once from IRSA TAP) so the browser can find exposures without the save-and-drop step. IRSA TAP answered 502 through 2026-11-15, so it isn't sized yet: `backend/scripts/coverage_probe.py` retries and writes the counts to `backend/cache/coverage/probe.json`; estimate the index size against the repo budget before building it.
 
-### Last: hosting and demo kit (old "step 1")
-GitHub Pages from the owner's public repo, a 30-second video following the tour, slides, the challenge-statement mapping, and target swaps (RW Aur → Teegarden's Star; keep WISE 0855 as the "why it can't be seen" lesson).
+### Status on 2026-11-15, and what's left to win
+
+**Done:** every point of the challenge statement is covered (README has the table). Six built-in targets with blink, wavelength-matched differences, 102-colour view, PSF photometry, WISE + NEOWISE frames, Gaia, motion fits and flags; any position through the local server (everything) or in the browser (colour, blink, flags); bring-your-own files and shared fields; validation regenerated from the data; 82 app tests and 53 pipeline tests; public docs (README, HOW-IT-WORKS, VALIDATION, BUILD-LOG, GET-THE-DATA, ROADMAP).
+
+**Owner (needed to submit):**
+1. Make the repo public on the Jake999999999 account and push (commits use the GitHub noreply address). Turn on GitHub Pages (Actions), then open the site and check: the six targets load, a `?ra=133.795&dec=-7.245&fov=4` link builds the colour map, and a name search (Sesame) works from the github.io address.
+2. Demo kit: a short video following the guided tour (Barnard's Star blink across 2010–2026, the Epsilon Indi B methane colour, a difference, a spectrum, then an any-spot search), and the submission text with the challenge table from the README.
+3. Try the hosted site on a phone and in a second browser.
+
+**Next for the code, in order of value for judges:**
+1. **One-click blink anywhere on the public site:** the static coverage index. Blocked only by IRSA TAP (HTTP 502 all day on 2026-11-15). When it answers: run `backend/scripts/coverage_probe.py`, size the index, and build it if it fits in a few MB. Until then the save-and-drop step works.
+2. **Accessibility audit** (axe-core + keyboard and screen-reader pass): on the public roadmap; owner said hold for now.
+3. **SAMP hand-off to Aladin/TOPCAT/DS9** once the site is hosted (needs real file URLs).
+4. **Outside review:** send the IRSA helpdesk (or SPHEREx team members) the link and VALIDATION.md; log what they say.
+5. Optional: one showcase target (e.g. Teegarden's Star), only if the owner raises the 20 MB budget (18 MB used) and approves ~1.5 GB of downloads.
+
+**Risks to know about for the demo:** IRSA often answers 502/503. The built-in targets and the browser colour map don't depend on it (static files and NASA's S3 copy); the save-and-drop step and the local server do, so demo those with a field that has already been fetched.
 
 ### Cut from the spec
 - Bloom / "Observatory View": makes science images look better than the data.
@@ -303,10 +318,12 @@ GitHub Pages from the owner's public repo, a 30-second video following the tour,
 
 ## 7. Open decisions for the owner
 
-1. **Repo visibility.** GitHub Pages on the free plan needs a public repo. Baked bundles are public NASA data, so nothing sensitive, but it is your call.
-2. **Download size.** M1 needs ~3 GB of cutout transfer into `backend/cache/` (T1 + T2); all five targets ~8 GB. OK to fetch?
-3. **T4 and T5.** If RW Aur shows no change and WISE 0855 doesn't reach 5σ, ship with three or four targets, or swap in Teegarden's Star?
-4. **Live mode (M3).** Is "any coordinate" needed for the submission, or is a strong static demo enough? It is the most fragile part (IRSA returned 503 on about a third of calls today).
+1. **Repo visibility.** Decided: public on Jake999999999, MIT licence; the owner pushes.
+2. **Download size.** Decided: all targets (~8 GB) approved; more targets need a new OK.
+3. **T4 and T5.** Kept: RW Aur and WISE 0855 stay as built-in targets with honest caveats (the challenge names them). Teegarden's Star remains an optional extra.
+4. **Live mode (M3).** Built: local server and browser-only mode.
+5. **Accessibility audit.** On hold by the owner; listed on the public roadmap.
+6. **More targets / budget.** Open: keep six (recommended), or raise the 20 MB budget for one or two showcase targets.
 
 ## 8. Changes from the original spec (summary)
 
