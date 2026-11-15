@@ -22,6 +22,8 @@ import { diffLimit, levelsFor, subtract } from "./lib/stretch";
 import { DEFAULT_STATE, parseLive, parseState, serializeState, type ViewState } from "./lib/urlState";
 import { LiveSearch, type LiveResult, type SourceMode } from "./components/LiveSearch";
 import { DataSourceStatus } from "./components/DataSourceStatus";
+import { ExportDialog } from "./components/ExportDialog";
+import { composePngFigure, type ExportOptions } from "./lib/exportFigure";
 import { GuideAndSettings, type HelpTab } from "./components/GuideAndSettings";
 import { liveBase, FORCE_BROWSER } from "./lib/live";
 import { COLORMAPS, COLORMAP_LABELS, buildLut, type ColormapName } from "./gl/colormaps";
@@ -623,6 +625,15 @@ export default function App() {
 
   const [sampNote, setSampNote] = useState<string | null>(null);
   const [gifBusy, setGifBusy] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportOpts, setExportOpts] = useState<ExportOptions>({
+    format: "png",
+    layout: "current",
+    includeHeader: true,
+    includeFooter: true,
+    includeOverlays: true,
+    includeSpectrum: false,
+  });
   const [linkCopied, setLinkCopied] = useState(false);
   const [coordsCopied, setCoordsCopied] = useState(false);
   const sampTimer = useRef<number | null>(null);
@@ -642,85 +653,133 @@ export default function App() {
     }
   }, [currentFitsPayload, flashSamp]);
 
-  const exportBlinkGif = useCallback(async () => {
-    if (!bundle || !steps.length || gifBusy) return;
-    setGifBusy(true);
-    setPlaying(false);
-    const prevIdx = stepIdx;
-    try {
-      const frames: GifFrame[] = [];
-      let gw = 0;
-      let gh = 0;
-      const delayCs = Math.max(10, Math.round(100 / Math.max(0.5, fps)));
-      const det = bundle.meta.detectors[state.band - 1];
-      const fovArcmin = (bundle.width * bundle.meta.pixel_scale_arcsec) / 60;
-      const footer = `${formatRa(bundle.meta.wcs.crval[0])} ${formatDec(bundle.meta.wcs.crval[1])} · ${fovArcmin.toFixed(1)}′ · D${state.band} ${det.wl_min}–${det.wl_max} µm · ${bundle.meta.pixel_scale_arcsec.toFixed(2)}″/px`;
-      for (let i = 0; i < steps.length; i++) {
-        setStepIdx(i);
-        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-        const snap = canvasRef.current?.snapshot({
-          header: `${shortName(bundle.meta.name)} · ${steps[i].label}`,
-          footer,
-          maxW: 480,
-        });
-        if (snap) {
-          gw = snap.width;
-          gh = snap.height;
-          frames.push({ rgba: snap.rgba, delayCs });
-        }
-      }
-      if (frames.length && gw > 0 && gh > 0) {
-        const bytes = encodeAnimatedGif(gw, gh, frames);
-        download(`${bundle.meta.id}-blink.gif`, bytes, "image/gif");
-      }
-    } finally {
-      setStepIdx(prevIdx);
-      setGifBusy(false);
+  const exportSpectrum = useMemo(() => {
+    if (!bundle) return null;
+    if (isColour && mapOverlay?.spectrum?.wl?.length) {
+      return {
+        title: `Map point ${formatRa(mapPoint!.ra)} ${formatDec(mapPoint!.dec)}`,
+        points: mapOverlay.spectrum.wl
+          .map((wl, i) => ({
+            i,
+            wl,
+            bw: 0,
+            flux: mapOverlay.spectrum!.flux[i] ?? NaN,
+            err: 0,
+            flag: FLAG_OK,
+            epoch: 0,
+            det: 1,
+            mjd: 0,
+          }))
+          .filter((p) => Number.isFinite(p.flux)),
+      };
     }
-  }, [bundle, steps, gifBusy, stepIdx, fps]);
+    const src = selected ?? bundle.spectra?.sources.find((s) => s.id === "target") ?? bundle.spectra?.sources[0] ?? null;
+    if (src && bundle.spectra) {
+      return {
+        title: src.id === "target" ? shortName(bundle.meta.name) : src.name,
+        points: points(bundle.spectra, src),
+      };
+    }
+    return null;
+  }, [bundle, isColour, mapOverlay, mapPoint, selected]);
 
-  const exportPng = useCallback(() => {
-    if (!bundle) return;
+  const runExport = useCallback(async () => {
+    if (!bundle || gifBusy) return;
     const m = bundle.meta;
     const det = m.detectors[state.band - 1];
     const fovArcmin = (bundle.width * m.pixel_scale_arcsec) / 60;
-    const modeLabel = isColour
-      ? PRESETS.find((p) => p.id === presetId)?.name ?? `RGB (${mix.r.lo}–${mix.r.hi}/${mix.g.lo}–${mix.g.hi}/${mix.b.lo}–${mix.b.hi} µm)`
-      : isDiff
-        ? `Difference (${formatMjdMonth(m.epochs[state.t2].mjd)} − ${formatMjdMonth(m.epochs[state.t1].mjd)})`
-        : step
-          ? step.label
-          : "Sky";
-    const wlLabel = isColour
-      ? `R ${mix.r.lo}–${mix.r.hi} G ${mix.g.lo}–${mix.g.hi} B ${mix.b.lo}–${mix.b.hi} µm`
-      : step?.kind === "wise" && !isDiff
-        ? "WISE"
-        : `D${state.band} ${det.wl_min}–${det.wl_max} µm`;
-    const scaleLabel = isColour && cube ? `${cube.desc.native_scale_arcsec}″/px` : `${m.pixel_scale_arcsec.toFixed(2)}″/px`;
-    const snap = canvasRef.current?.snapshot({
-      header: `${shortName(m.name)} · ${modeLabel}`,
-      footer: `${formatRa(m.wcs.crval[0])} ${formatDec(m.wcs.crval[1])} · ${fovArcmin.toFixed(1)}′ · ${wlLabel} · ${scaleLabel} · SPHEREx Blink`,
-      maxW: 960,
+
+    if (exportOpts.format === "gif") {
+      if (!steps.length) return;
+      setGifBusy(true);
+      setPlaying(false);
+      if (state.mode !== "blink") {
+        set({ mode: "blink" });
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      }
+      const prevIdx = stepIdx;
+      try {
+        const frames: GifFrame[] = [];
+        let gw = 0;
+        let gh = 0;
+        const delayCs = Math.max(10, Math.round(100 / Math.max(0.5, fps)));
+        const footer = `${formatRa(m.wcs.crval[0])} ${formatDec(m.wcs.crval[1])} · ${fovArcmin.toFixed(1)}′ · D${state.band} ${det.wl_min}–${det.wl_max} µm · ${m.pixel_scale_arcsec.toFixed(2)}″/px`;
+        for (let i = 0; i < steps.length; i++) {
+          setStepIdx(i);
+          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+          const snap = canvasRef.current?.snapshot({
+            header: exportOpts.includeHeader ? `${shortName(m.name)} · ${steps[i].label}` : undefined,
+            footer: exportOpts.includeFooter ? footer : undefined,
+            includeOverlays: exportOpts.includeOverlays,
+            maxW: 480,
+          });
+          if (snap) {
+            gw = snap.width;
+            gh = snap.height;
+            frames.push({ rgba: snap.rgba, delayCs });
+          }
+        }
+        if (frames.length && gw > 0 && gh > 0) {
+          const bytes = encodeAnimatedGif(gw, gh, frames);
+          download(`${m.id}-blink.gif`, bytes, "image/gif");
+        }
+        setExportOpen(false);
+      } finally {
+        setStepIdx(prevIdx);
+        setGifBusy(false);
+      }
+      return;
+    }
+
+    const modeLabel =
+      exportOpts.layout === "presets-grid" && cube
+        ? "4-Preset Infrared Comparison"
+        : isColour
+          ? PRESETS.find((p) => p.id === presetId)?.name ?? `RGB (${mix.r.lo}–${mix.r.hi}/${mix.g.lo}–${mix.g.hi}/${mix.b.lo}–${mix.b.hi} µm)`
+          : isDiff
+            ? `Difference (${formatMjdMonth(m.epochs[state.t2].mjd)} − ${formatMjdMonth(m.epochs[state.t1].mjd)})`
+            : step
+              ? step.label
+              : "Sky";
+    const wlLabel =
+      exportOpts.layout === "presets-grid"
+        ? "0.75–5.0 µm (4 presets)"
+        : isColour
+          ? `R ${mix.r.lo}–${mix.r.hi} G ${mix.g.lo}–${mix.g.hi} B ${mix.b.lo}–${mix.b.hi} µm`
+          : step?.kind === "wise" && !isDiff
+            ? "WISE"
+            : `D${state.band} ${det.wl_min}–${det.wl_max} µm`;
+    const scaleLabel = (exportOpts.layout === "presets-grid" || isColour) && cube ? `${cube.desc.native_scale_arcsec}″/px` : `${m.pixel_scale_arcsec.toFixed(2)}″/px`;
+    const baseSnap =
+      exportOpts.layout === "current"
+        ? canvasRef.current?.snapshot({
+            maxW: 960,
+            includeOverlays: exportOpts.includeOverlays,
+          })
+        : null;
+    const figCanvas = composePngFigure({
+      baseRgba: baseSnap,
+      cube,
+      stretch: state.stretch,
+      smooth,
+      options: exportOpts,
+      headerText: `${shortName(m.name)} · ${modeLabel}`,
+      footerText: `${formatRa(m.wcs.crval[0])} ${formatDec(m.wcs.crval[1])} · ${fovArcmin.toFixed(1)}′ · ${wlLabel} · ${scaleLabel} · SPHEREx Blink`,
+      spectrum: exportSpectrum,
     });
-    if (!snap) return;
-    const c = document.createElement("canvas");
-    c.width = snap.width;
-    c.height = snap.height;
-    const ctx = c.getContext("2d");
-    if (!ctx) return;
-    const imgData = ctx.createImageData(snap.width, snap.height);
-    imgData.data.set(snap.rgba);
-    ctx.putImageData(imgData, 0, 0);
-    c.toBlob((blob) => {
+    if (!figCanvas) return;
+    figCanvas.toBlob((blob) => {
       if (!blob) return;
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${bundle.meta.id}-${state.mode}.png`;
+      const suffix = exportOpts.layout === "presets-grid" ? "presets-2x2" : state.mode;
+      a.download = `${m.id}-${suffix}.png`;
       a.click();
       URL.revokeObjectURL(url);
+      setExportOpen(false);
     }, "image/png");
-  }, [bundle, isColour, isDiff, presetId, state.t1, state.t2, state.mode, step]);
+  }, [bundle, gifBusy, exportOpts, steps, state.mode, state.band, state.t1, state.t2, state.stretch, stepIdx, fps, set, cube, isColour, presetId, mix, isDiff, step, smooth, exportSpectrum]);
 
   const copyShareLink = useCallback(async () => {
     try {
@@ -1099,29 +1158,39 @@ export default function App() {
                 <Download size={13} />
                 <span className="ml-1">FITS</span>
               </OverlayBtn>
-              <OverlayBtn active={false} onClick={exportPng} title="Save a labeled PNG snapshot of this view for slides & sharing">
+              <OverlayBtn
+                active={exportOpen && exportOpts.format === "png"}
+                onClick={() => {
+                  setExportOpts((o) => ({
+                    ...o,
+                    format: "png",
+                    layout: o.layout === "presets-grid" && !cube ? "current" : o.layout,
+                  }));
+                  setExportOpen(true);
+                }}
+                title="Open export menu to save PNG (current view, 2×2 colour presets, spectrum chart)"
+              >
                 <Camera size={13} />
                 <span className="ml-1">PNG</span>
               </OverlayBtn>
               <OverlayBtn
-                active={gifBusy}
+                active={gifBusy || (exportOpen && exportOpts.format === "gif")}
                 onClick={() => {
-                  if (state.mode !== "blink") {
-                    if (bundle.meta.epochs.length > 0) set({ mode: "blink" });
-                    return;
-                  }
-                  void exportBlinkGif();
+                  setExportOpts((o) => ({
+                    ...o,
+                    format: steps.length > 0 ? "gif" : "png",
+                    layout: "current",
+                  }));
+                  setExportOpen(true);
                 }}
                 title={
-                  state.mode === "blink"
-                    ? "Export animated Blink GIF for slides & papers"
-                    : bundle.meta.epochs.length > 0
-                      ? "Switch to Blink mode to export an animated GIF"
-                      : "Load a time series in Blink mode to export a GIF"
+                  steps.length > 0
+                    ? "Open export menu for animated Blink GIF"
+                    : "Load a time series to export an animated GIF"
                 }
               >
                 <Film size={13} />
-                <span className={`ml-1 ${state.mode === "blink" ? "" : "opacity-65"}`}>{gifBusy ? "GIF…" : "GIF"}</span>
+                <span className={`ml-1 ${state.mode === "blink" ? "" : "opacity-75"}`}>{gifBusy ? "GIF…" : "GIF"}</span>
               </OverlayBtn>
               <OverlayBtn active={false} onClick={sampFits} title="Send this FITS image to Aladin, TOPCAT, or DS9 via Web SAMP (requires local server)">
                 <Send size={12} />
@@ -1498,6 +1567,19 @@ export default function App() {
           </footer>
         </aside>
       </div>
+      <ExportDialog
+        open={exportOpen}
+        options={exportOpts}
+        onChange={setExportOpts}
+        onExport={() => void runExport()}
+        onClose={() => setExportOpen(false)}
+        busy={gifBusy}
+        hasCube={!!cube}
+        hasBlink={steps.length > 0}
+        hasSpectrum={!!exportSpectrum}
+        spectrumLabel={exportSpectrum?.title}
+        fps={fps}
+      />
     </div>
   );
 }

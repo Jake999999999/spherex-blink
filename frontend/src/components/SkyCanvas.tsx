@@ -19,6 +19,7 @@ export interface SnapshotOptions {
   header?: string;
   footer?: string;
   maxW?: number;
+  includeOverlays?: boolean;
 }
 
 export interface SkyCanvasHandle {
@@ -214,7 +215,7 @@ export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, o
         ctx.fillText(cfg.header, 10, headerH - 10, w - 20);
       }
       ctx.drawImage(gl, 0, headerH, w, imgH);
-      ctx.drawImage(ov, 0, headerH, w, imgH);
+      if (cfg.includeOverlays !== false) ctx.drawImage(ov, 0, headerH, w, imgH);
       if (cfg.footer) {
         const fy = headerH + imgH;
         ctx.fillStyle = "#070b12";
