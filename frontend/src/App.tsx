@@ -22,6 +22,7 @@ import { diffLimit, levelsFor, subtract } from "./lib/stretch";
 import { DEFAULT_STATE, parseLive, parseState, serializeState, type ViewState } from "./lib/urlState";
 import { LiveSearch, type LiveResult, type SourceMode } from "./components/LiveSearch";
 import { DataSourceStatus } from "./components/DataSourceStatus";
+import { SkyContextAladin } from "./components/SkyContextAladin";
 import { ExportDialog } from "./components/ExportDialog";
 import { composePngFigure, type ExportOptions } from "./lib/exportFigure";
 import { GuideAndSettings, type HelpTab } from "./components/GuideAndSettings";
@@ -1339,6 +1340,21 @@ export default function App() {
                 <Activity size={14} /> Show its spectrum
               </button>
             )}
+            <div className="mt-3">
+              <SkyContextAladin
+                wcs={m.wcs}
+                shape={[bundle.height, bundle.width]}
+                gaiaStars={bundle.gaia.stars}
+                streak={
+                  motion && motion.pts.length >= 2
+                    ? [
+                        pixelToWorld(m.wcs, motion.pts[0].x, motion.pts[0].y),
+                        pixelToWorld(m.wcs, motion.pts[motion.pts.length - 1].x, motion.pts[motion.pts.length - 1].y),
+                      ]
+                    : null
+                }
+              />
+            </div>
           </section>
 
           <Section title="View" anchor="view">
