@@ -933,6 +933,7 @@ export default function App() {
           <p className="truncate text-xs text-slate-400">Watch the infrared sky change, using real data from NASA's SPHEREx telescope</p>
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          <DataSourceStatus serverOnline={serverOnline} onUpstream502={setIrsaUpstream502} />
           {irsaUpstream502 && (
             <span
               role="status"
@@ -1010,7 +1011,6 @@ export default function App() {
         onCheckServer={checkServer}
         onUpstream502={setIrsaUpstream502}
       />
-      <DataSourceStatus serverOnline={serverOnline} onUpstream502={setIrsaUpstream502} />
       <div data-tour="targets">
         <TargetBar targets={[...index, ...liveEntries]} current={m.id} onPick={(id) => set({ target: id })} />
       </div>
