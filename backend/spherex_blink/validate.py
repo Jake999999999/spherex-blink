@@ -670,7 +670,16 @@ def write_markdown(r: dict) -> None:
             span = v["movers"][0]["baseline_yr"] if v["movers"] else 0.0
             ms_s = f"{ms:g}″/yr (over the {span:.1f}-yr SPHEREx span)" if ms and v["movers"] else "not reliable"
             lines.append(f"| {tid} | {lim_s} | {b8_s} | {eb_s} | {ms_s} |")
+        speeds = sorted({m["injected"] for v in inj.values() for m in v["movers"]})
+        lines += ["", "Fake movers (5 mJy) measured from the SPHEREx visits alone, all fields together:", "", "| Speed | Recovered within 25% |", "|---|---|"]
+        for sp in speeds:
+            rows = [m for v in inj.values() for m in v["movers"] if m["injected"] == sp]
+            ok = sum(abs(m["measured"] - sp) <= max(0.25 * sp, 0.5) for m in rows)
+            lines.append(f"| {sp:g}″/yr | {ok} of {len(rows)} |")
         lines += [
+            "",
+            "Reading the motion test: with only the ~1.4 years of SPHEREx visits, the centroid often locks onto a neighbouring star in crowded fields, so motion from SPHEREx alone is unreliable here even at 16″/yr. "
+            "The app's motion tool uses the 2010 WISE frame (a 16-year baseline), which is why it matches Gaia within 1–2% on the real targets (section 3). PSF fitting (roadmap S6) is the fix for SPHEREx-only motions.",
             "",
             "Reading it: the brightness bias of bright planted stars matches the share of a Gaussian's light that falls outside the 15.4″ aperture, so the measurement itself is unbiased; real stars (section 1) agree with 2MASS/WISE because the real PSF holds more light in its core. "
             "Faint stars read low, the usual faint-end bias. Motions slower than the listed speed need the 2010 WISE frame for a long enough baseline.",

@@ -873,6 +873,7 @@ export default function App() {
                   n={motion?.pts.length ?? 0}
                   gaia={{ east: selected.pmra / 1000, north: selected.pmdec / 1000 }}
                   frames={steps.length}
+                  hasWise={steps.some((s) => s.kind === "wise")}
                 />
                 )}
               </SpectrumPanel>
@@ -1155,6 +1156,7 @@ function MotionBar(p: {
   n: number;
   gaia: { east: number; north: number };
   frames: number;
+  hasWise: boolean;
 }) {
   const gTot = Math.hypot(p.gaia.east, p.gaia.north);
   if (p.expectedPx < 1) {
@@ -1176,6 +1178,9 @@ function MotionBar(p: {
         </span>
       )}
       {p.measuring && !p.fit && <span className="text-amber-300">Couldn't find the star in enough frames.</span>}
+      {p.measuring && p.fit && !p.hasWise && (
+        <span className="text-amber-300">Without the 2010 WISE frame this uses SPHEREx visits alone, which our fake-star tests show is unreliable (about half of movers recovered). Turn the 2010 image on for a trustworthy speed.</span>
+      )}
       {p.measuring && (
         <span className="text-slate-400">Centroids (pink ×) of this detector's frames{p.frames > 1 ? "" : ""}; the search starts at the Gaia position for each date.</span>
       )}

@@ -94,6 +94,32 @@ If the stated uncertainties are right, a measurement divided by its uncertainty 
 
 (Plain stacks fail this test for a good reason: their “blank” sky still holds real faint stars and glow below Gaia's limit, so it isn't pure noise.) The app multiplies single-exposure error bars by the photometry factor for each detector (never by less than 1). Absolute brightness carries a further ≈4% uncertainty (the star-to-star spread against 2MASS/WISE, section 1).
 
+## 9. Injection–recovery (S4)
+
+Fake stars of known brightness (12 per level, at blank positions) and fake movers of known speed (3 per speed, 5 mJy) were planted into the real single exposures, and measured with the same code as the real data. Planted stars use a Gaussian PSF whose width is measured from real stars in each field and detector (the official SPHEREx PSF replaces it in S6). A planted star counts as recovered when its combined single-exposure flux reaches 5σ with the honest (S3) error bars.
+
+| Target | 90% recovered down to | Bias at 8 mJy | Expected from the aperture | Motion recovered (SPHEREx only) from |
+|---|---|---|---|---|
+| barnard | 0.5 mJy | -13.0% | -10.0% | not reliable |
+| eps-ind-b | 0.12 mJy | -2.8% | -0.1% | 16″/yr (over the 1.4-yr SPHEREx span) |
+| nep-lpv | 0.06 mJy | -5.0% | -4.4% | not reliable |
+| rw-aur | 0.5 mJy | -9.3% | -7.3% | not reliable |
+| wise-0855 | 0.25 mJy | -4.2% | -1.3% | not reliable |
+
+Fake movers (5 mJy) measured from the SPHEREx visits alone, all fields together:
+
+| Speed | Recovered within 25% |
+|---|---|
+| 1″/yr | 6 of 15 |
+| 2″/yr | 5 of 15 |
+| 4″/yr | 7 of 15 |
+| 8″/yr | 6 of 15 |
+| 16″/yr | 7 of 15 |
+
+Reading the motion test: with only the ~1.4 years of SPHEREx visits, the centroid often locks onto a neighbouring star in crowded fields, so motion from SPHEREx alone is unreliable here even at 16″/yr. The app's motion tool uses the 2010 WISE frame (a 16-year baseline), which is why it matches Gaia within 1–2% on the real targets (section 3). PSF fitting (roadmap S6) is the fix for SPHEREx-only motions.
+
+Reading it: the brightness bias of bright planted stars matches the share of a Gaussian's light that falls outside the 15.4″ aperture, so the measurement itself is unbiased; real stars (section 1) agree with 2MASS/WISE because the real PSF holds more light in its core. Faint stars read low, the usual faint-end bias. Motions slower than the listed speed need the 2010 WISE frame for a long enough baseline.
+
 ## Known limits
 
 - No aperture correction is applied; section 1 shows the fluxes nevertheless agree with 2MASS/WISE to a few per cent for unsaturated stars.
