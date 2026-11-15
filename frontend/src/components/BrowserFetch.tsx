@@ -150,7 +150,7 @@ export function BrowserFetch({ onReady, autostart }: Props) {
   };
 
   const takeFiles = async (files: File[]) => {
-    // a whole field made by the pipeline (meta.json, frames.bin, …), shared as files
+    // a whole field made by the pipeline (meta.json, frames.bin, …), shared as files or a folder
     if (files.some((f) => f.name === "meta.json")) {
       const r = await readBundleFiles(files.filter((f) => BUNDLE_FILES.includes(f.name)));
       if (typeof r === "string") return setErr(r);
@@ -160,17 +160,36 @@ export function BrowserFetch({ onReady, autostart }: Props) {
       setMsg(`Opened the shared field “${r.name}”.`);
       return onReady({ id, name: r.name, ra: r.ra, dec: r.dec, fov: r.fov, browser: true, shared: true });
     }
-    if (!field) return setErr("Type the position first, then drop the files.");
     const fits = files.filter((f) => /\.fits?(\.gz)?$/i.test(f.name) || f.type === "application/fits");
     const other = files.filter((f) => !fits.includes(f));
     if (fits.some((f) => /\.gz$/i.test(f.name))) return setErr("Please unzip .gz files first (or download cutouts with gzip off).");
+    if (!field && other.length) return setErr("Type the position first, then drop the exposure list.");
     if (other.length) {
       const f = other[0];
       if (f.size > MAX_LIST_BYTES) return setErr("That file is too large for an exposure list.");
       return takeText(await f.text());
     }
-    if (fits.length)
-      void run({ id: field.id, name: field.name, ra: field.ra, dec: field.dec, fov: field.fov, files: fits, withCube: !field.cube, reuseCube: field.cube }, field, `Reading ${fits.length} files…`);
+    if (fits.length) {
+      let targetField = field;
+      if (!targetField) {
+        const center = await fitsCenter(fits[0]);
+        if (!center) return setErr("Type the position first, then drop the FITS files.");
+        targetField = {
+          id: fieldId(center.ra, center.dec, fov),
+          name: fits[0].name.replace(/\.fits?$/i, ""),
+          ra: center.ra,
+          dec: center.dec,
+          fov,
+          cube: null,
+        };
+        setField(targetField);
+      }
+      void run(
+        { id: targetField.id, name: targetField.name, ra: targetField.ra, dec: targetField.dec, fov: targetField.fov, files: fits, withCube: !targetField.cube, reuseCube: targetField.cube },
+        targetField,
+        `Reading ${fits.length} files…`,
+      );
+    }
   };
 
   return (
@@ -184,7 +203,7 @@ export function BrowserFetch({ onReady, autostart }: Props) {
       onDrop={(e) => {
         e.preventDefault();
         setDrag(false);
-        if (!busy) void takeFiles([...e.dataTransfer.files]);
+        if (!busy) void collectDroppedFiles(e.dataTransfer).then(takeFiles);
       }}
     >
       <form
@@ -268,9 +287,8 @@ export function BrowserFetch({ onReady, autostart }: Props) {
             placeholder="…or paste the list / links here"
             rows={1}
             className="mt-1.5 w-full resize-y rounded border border-white/10 bg-slate-950/60 px-2 py-1 font-mono text-[11px] text-slate-200 placeholder:text-slate-500"
-            onPaste={(e) => {
-              e.preventDefault();
-              takeText(e.clipboardData.getData("text"));
+            onChange={(e) => {
+              if (e.target.value.trim()) takeText(e.target.value);
             }}
           />
           <label className="mt-1 inline-flex cursor-pointer items-center gap-1 text-slate-400 hover:text-slate-200">
@@ -297,4 +315,34 @@ export function BrowserFetch({ onReady, autostart }: Props) {
       )}
     </div>
   );
+}
+
+/** Read CRVAL1/CRVAL2 from the first ~28 KB of a FITS file so users can drop FITS before typing coordinates. */
+async function fitsCenter(file: File): Promise<{ ra: number; dec: number } | null> {
+  const head = await file.slice(0, 28800).text();
+  const m1 = /CRVAL1\s*=\s*([-\d.eE+]+)/.exec(head);
+  const m2 = /CRVAL2\s*=\s*([-\d.eE+]+)/.exec(head);
+  if (!m1 || !m2) return null;
+  const ra = Number(m1[1]);
+  const dec = Number(m2[1]);
+  return Number.isFinite(ra) && Number.isFinite(dec) && dec >= -90 && dec <= 90 ? { ra: ((ra % 360) + 360) % 360, dec } : null;
+}
+
+/** Expand dropped directories (shared field folders) into flat File[]. */
+async function collectDroppedFiles(dt: DataTransfer): Promise<File[]> {
+  const entries = [...(dt.items ?? [])].map((it) => it.webkitGetAsEntry?.()).filter((e): e is FileSystemEntry => !!e);
+  if (!entries.length) return [...dt.files];
+  const out: File[] = [];
+  const walk = async (entry: FileSystemEntry): Promise<void> => {
+    if (entry.isFile) {
+      const f = await new Promise<File>((res, rej) => (entry as FileSystemFileEntry).file(res, rej));
+      out.push(f);
+    } else if (entry.isDirectory) {
+      const reader = (entry as FileSystemDirectoryEntry).createReader();
+      const batch = await new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej));
+      for (const child of batch) await walk(child);
+    }
+  };
+  for (const e of entries) await walk(e);
+  return out.length ? out : [...dt.files];
 }
