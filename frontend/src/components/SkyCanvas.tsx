@@ -73,6 +73,7 @@ export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, o
   const uploaded = useRef<Bundle | null>(null);
   const [error, setError] = useState<string | null>(null);
   const viewRef = useRef<View>({ zoom: 4, cx: 0, cy: 0 });
+  const userMovedRef = useRef(false);
   const [, setTick] = useState(0);
   const bump = () => setTick((t) => t + 1);
 
@@ -81,6 +82,7 @@ export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, o
     if (!el) return;
     const z = Math.min(el.clientWidth / bundle.width, el.clientHeight / bundle.height) * 0.94;
     viewRef.current = { zoom: Math.max(0.5, z), cx: bundle.width / 2, cy: bundle.height / 2 };
+    userMovedRef.current = false;
   }, [bundle]);
 
   // renderer + upload
@@ -153,7 +155,10 @@ export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, o
     let raf = 0;
     const schedule = () => {
       cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => paint());
+      raf = requestAnimationFrame(() => {
+        if (!userMovedRef.current) fit();
+        paint();
+      });
     };
     const ro = new ResizeObserver(schedule);
     ro.observe(el);
@@ -200,6 +205,7 @@ export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, o
         v.cx = dx - (sx - rect.width / 2) / z;
         v.cy = dy + (sy - rect.height / 2) / z;
         v.zoom = z;
+        userMovedRef.current = true;
         bump();
       }}
       onPointerDown={(e) => {
@@ -221,6 +227,7 @@ export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, o
         const v = viewRef.current;
         if (d && !d.moved && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4) d.moved = true;
         if (d && d.moved) {
+          userMovedRef.current = true;
           v.cx = d.cx - (e.clientX - d.x) / v.zoom;
           v.cy = d.cy + (e.clientY - d.y) / v.zoom;
           bump();

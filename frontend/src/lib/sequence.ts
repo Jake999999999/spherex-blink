@@ -33,7 +33,7 @@ export function stepPlane(b: Bundle, s: Step, detector: number): Float32Array {
  * brightest neighbour, growing inward a few passes. Field-edge NaNs (next to faint sky) stay empty.
  * The original data is untouched; hover readouts and photometry still see NaN.
  */
-export function fillSaturated(plane: Float32Array, w: number, h: number, passes = 4): Float32Array {
+export function fillSaturated(plane: Float32Array, w: number, h: number, passes = 8): Float32Array {
   const finite: number[] = [];
   for (let i = 0; i < plane.length; i++) if (Number.isFinite(plane[i])) finite.push(plane[i]);
   if (!finite.length) return plane;
@@ -73,10 +73,10 @@ export function fillSaturated(plane: Float32Array, w: number, h: number, passes 
 export function allPlanes(b: Bundle): Float32Array[] {
   const planes: Float32Array[] = [];
   for (let e = 0; e < b.meta.epochs.length; e++) for (let d = 1; d <= 6; d++) planes.push(fillSaturated(framePlane(b, e, d), b.width, b.height));
-  for (let i = 0; i < b.meta.wise.length; i++) planes.push(wisePlane(b, i));
+  for (let i = 0; i < b.meta.wise.length; i++) planes.push(fillSaturated(wisePlane(b, i), b.width, b.height));
   // S2 matched frames after the WISE ones (no saturated-core fill: these are differences)
   if (b.meta.layout.matched) for (let e = 0; e < b.meta.epochs.length; e++) for (let d = 1; d <= 6; d++) planes.push(matchedPlane(b, e, d)!);
-  if (b.neowise) for (let i = 0; i < (b.meta.neowise?.frames.length ?? 0); i++) planes.push(neowisePlane(b, i));
+  if (b.neowise) for (let i = 0; i < (b.meta.neowise?.frames.length ?? 0); i++) planes.push(fillSaturated(neowisePlane(b, i), b.width, b.height));
   // a map-only field (built in the browser without exposures) has no frames: keep the texture non-empty
   if (!planes.length) planes.push(new Float32Array(b.width * b.height).fill(NaN));
   return planes;
