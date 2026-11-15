@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, Globe2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Globe2, X } from "lucide-react";
 import type { GaiaStar, GridWcs } from "../lib/bundle";
-import { pixelToWorld } from "../lib/wcs";
+import { formatDec, formatRa, pixelToWorld } from "../lib/wcs";
 
 interface AladinGlobal {
   init: Promise<void>;
@@ -115,6 +115,150 @@ async function fetchGaiaContextStars(ra: number, dec: number, radiusDeg: number,
     }));
 }
 
+async function hipsTilesAvailable(): Promise<boolean> {
+  try {
+    const ac = new AbortController();
+    const timer = window.setTimeout(() => ac.abort(), 3500);
+    const res = await fetch("https://alasky.cds.unistra.fr/AllWISE/color/properties", { signal: ac.signal });
+    window.clearTimeout(timer);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+interface FinderStar {
+  ra: number;
+  dec: number;
+  g: number | null;
+  pmra: number | null;
+  pmdec: number | null;
+}
+
+function FinderChartFallback({
+  ra,
+  dec,
+  fovDeg,
+  footprintCorners,
+  streak,
+  stars,
+  showGaia,
+}: {
+  ra: number;
+  dec: number;
+  fovDeg: number;
+  footprintCorners: [number, number][];
+  streak?: [[number, number], [number, number]] | null;
+  stars: FinderStar[];
+  showGaia: boolean;
+}) {
+  const [picked, setPicked] = useState<FinderStar | null>(null);
+  const cosDec = Math.max(0.05, Math.cos((dec * Math.PI) / 180));
+  const W = 320;
+  const H = 224;
+  const pxPerDeg = H / fovDeg;
+
+  const project = (r: number, d: number): [number, number] => {
+    let dra = r - ra;
+    if (dra > 180) dra -= 360;
+    if (dra < -180) dra += 360;
+    // East is left (-x), North is up (-y)
+    const x = W / 2 - dra * cosDec * pxPerDeg;
+    const y = H / 2 - (d - dec) * pxPerDeg;
+    return [x, y];
+  };
+
+  const boxPoints = footprintCorners.map(([r, d]) => project(r, d).join(",")).join(" ");
+  const streakPts = streak ? [project(streak[0][0], streak[0][1]), project(streak[1][0], streak[1][1])] : null;
+
+  return (
+    <div className="relative h-56 w-full overflow-hidden rounded-lg border border-white/10 bg-[#050914] select-none">
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-full w-full" onClick={() => setPicked(null)}>
+        {/* subtle coordinate grid */}
+        {[-0.5, 0, 0.5].map((f) => (
+          <g key={f} stroke="rgba(148,163,184,0.12)" strokeWidth="1">
+            <line x1={W / 2 + f * H * 0.7} y1={0} x2={W / 2 + f * H * 0.7} y2={H} />
+            <line x1={0} y1={H / 2 + f * H * 0.7} x2={W} y2={H / 2 + f * H * 0.7} />
+          </g>
+        ))}
+
+        {/* Gaia DR3 stars */}
+        {showGaia &&
+          stars.map((s, idx) => {
+            const [cx, cy] = project(s.ra, s.dec);
+            if (cx < -6 || cx > W + 6 || cy < -6 || cy > H + 6) return null;
+            const r = s.g !== null ? Math.max(2, Math.min(5.5, (18 - s.g) * 0.45)) : 2.5;
+            const active = picked === s;
+            return (
+              <circle
+                key={idx}
+                cx={cx}
+                cy={cy}
+                r={r}
+                fill={active ? "rgba(34,211,238,0.35)" : "rgba(34,211,238,0.08)"}
+                stroke={active ? "#ffffff" : "#22d3ee"}
+                strokeWidth={active ? 1.5 : 1}
+                className="cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPicked(s);
+                }}
+              />
+            );
+          })}
+
+        {/* Orange cutout footprint */}
+        <polyline points={boxPoints} fill="rgba(245,158,11,0.06)" stroke="#f59e0b" strokeWidth="1.75" />
+
+        {/* Optional measured motion streak */}
+        {streakPts && (
+          <line
+            x1={streakPts[0][0]}
+            y1={streakPts[0][1]}
+            x2={streakPts[1][0]}
+            y2={streakPts[1][1]}
+            stroke="#ef4444"
+            strokeWidth="2"
+          />
+        )}
+
+        {/* Centre reticle */}
+        <g stroke="rgba(56,189,248,0.55)" strokeWidth="1">
+          <line x1={W / 2 - 6} y1={H / 2} x2={W / 2 - 2} y2={H / 2} />
+          <line x1={W / 2 + 2} y1={H / 2} x2={W / 2 + 6} y2={H / 2} />
+          <line x1={W / 2} y1={H / 2 - 6} x2={W / 2} y2={H / 2 - 2} />
+          <line x1={W / 2} y1={H / 2 + 2} x2={W / 2} y2={H / 2 + 6} />
+        </g>
+      </svg>
+
+      <div className="pointer-events-none absolute bottom-1.5 left-2 font-mono text-[10px] text-slate-400">
+        {(fovDeg * 60).toFixed(1)}′ FOV · N↑ E←
+      </div>
+
+      {picked && (
+        <div className="absolute right-2 top-2 z-10 w-44 rounded-md border border-sky-400/40 bg-slate-950/95 p-2 text-[10px] text-slate-200 shadow-lg">
+          <div className="mb-1 flex items-center justify-between font-mono text-sky-300">
+            <span>
+              {formatRa(picked.ra)} {formatDec(picked.dec)}
+            </span>
+            <button type="button" onClick={() => setPicked(null)} className="text-slate-400 hover:text-white">
+              <X size={11} />
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-slate-300">
+            <span>G mag</span>
+            <span className="mono text-right">{picked.g !== null ? picked.g.toFixed(2) : "—"}</span>
+            <span>pm RA</span>
+            <span className="mono text-right">{picked.pmra !== null ? `${picked.pmra.toFixed(1)} mas/yr` : "—"}</span>
+            <span>pm Dec</span>
+            <span className="mono text-right">{picked.pmdec !== null ? `${picked.pmdec.toFixed(1)} mas/yr` : "—"}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface Props {
   wcs: GridWcs;
   shape: [number, number];
@@ -128,6 +272,8 @@ export function SkyContextAladin({ wcs, shape, gaiaStars, streak }: Props) {
   const [showGaiaCatalog, setShowGaiaCatalog] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fallbackMode, setFallbackMode] = useState(false);
+  const [fallbackStars, setFallbackStars] = useState<FinderStar[]>([]);
   const [gaiaNote, setGaiaNote] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
 
@@ -150,7 +296,7 @@ export function SkyContextAladin({ wcs, shape, gaiaStars, streak }: Props) {
     return [c0, c1, c2, c3, c0];
   }, [wcs, width, height]);
 
-  // Mount Aladin Lite each time the panel is opened
+  // Mount Aladin Lite each time the panel is opened (or fall back to built-in finder if HiPS tiles are down)
   useEffect(() => {
     if (!open || !hostRef.current) {
       aladinRef.current = null;
@@ -161,10 +307,16 @@ export function SkyContextAladin({ wcs, shape, gaiaStars, streak }: Props) {
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setFallbackMode(false);
 
-    loadAladinLite()
-      .then((A) => {
+    Promise.all([hipsTilesAvailable(), loadAladinLite()])
+      .then(([hipsOk, A]) => {
         if (cancelled || !hostRef.current) return;
+        if (!hipsOk) {
+          setFallbackMode(true);
+          setLoading(false);
+          return;
+        }
         const instance = A.aladin(hostRef.current, {
           survey,
           fov: contextFovDeg,
@@ -192,10 +344,9 @@ export function SkyContextAladin({ wcs, shape, gaiaStars, streak }: Props) {
         catalogRef.current = catalog;
         setLoading(false);
       })
-      .catch((err) => {
+      .catch(() => {
         if (cancelled) return;
-        const msg = typeof err === "string" ? err : err instanceof Error ? err.message : "Failed to load Aladin Lite";
-        setError(msg);
+        setFallbackMode(true);
         setLoading(false);
       });
 
@@ -227,13 +378,14 @@ export function SkyContextAladin({ wcs, shape, gaiaStars, streak }: Props) {
 
   // Show/hide and populate Gaia DR3 stars (VizieR TAP 400 brightest in wider field, fallback to bundle)
   useEffect(() => {
-    if (!open || !catalogRef.current || !window.A || loading) return;
+    if (!open || loading) return;
+    if (!fallbackMode && (!catalogRef.current || !window.A)) return;
     const cat = catalogRef.current;
     if (!showGaiaCatalog) {
-      cat.hide();
+      cat?.hide();
       return;
     }
-    cat.show();
+    cat?.show();
     const A = window.A;
     const ac = new AbortController();
     setGaiaNote("Loading Gaia DR3 stars…");
@@ -241,31 +393,48 @@ export function SkyContextAladin({ wcs, shape, gaiaStars, streak }: Props) {
     fetchGaiaContextStars(ra, dec, contextFovDeg * 0.55, ac.signal)
       .then((rows) => {
         if (ac.signal.aborted) return;
-        cat.removeAll();
-        cat.addSources(
-          rows.map((s) =>
-            A.source(s.ra, s.dec, {
-              "G mag": s.g !== null ? s.g.toFixed(2) : "—",
-              "pm RA (mas/yr)": s.pmra !== null ? s.pmra.toFixed(1) : "—",
-              "pm Dec (mas/yr)": s.pmdec !== null ? s.pmdec.toFixed(1) : "—",
-            }),
-          ),
-        );
+        if (fallbackMode) {
+          setFallbackStars(rows);
+        } else if (cat && A) {
+          cat.removeAll();
+          cat.addSources(
+            rows.map((s) =>
+              A.source(s.ra, s.dec, {
+                "G mag": s.g !== null ? s.g.toFixed(2) : "—",
+                "pm RA (mas/yr)": s.pmra !== null ? s.pmra.toFixed(1) : "—",
+                "pm Dec (mas/yr)": s.pmdec !== null ? s.pmdec.toFixed(1) : "—",
+              }),
+            ),
+          );
+        }
         setGaiaNote(`${rows.length} Gaia DR3 stars drawn (CDS VizieR). Click any circle for details.`);
       })
       .catch(() => {
         if (ac.signal.aborted) return;
-        cat.removeAll();
+        const bundleRows: FinderStar[] = gaiaStars.map((s) => ({
+          ra: s.ra,
+          dec: s.dec,
+          g: s.g,
+          pmra: s.pmra,
+          pmdec: s.pmdec,
+        }));
+        if (fallbackMode) {
+          setFallbackStars(bundleRows);
+        } else if (cat && A) {
+          cat.removeAll();
+          if (gaiaStars.length > 0) {
+            cat.addSources(
+              gaiaStars.map((s) =>
+                A.source(s.ra, s.dec, {
+                  "G mag": s.g !== null ? s.g.toFixed(2) : "—",
+                  "pm RA (mas/yr)": s.pmra.toFixed(1),
+                  "pm Dec (mas/yr)": s.pmdec.toFixed(1),
+                }),
+              ),
+            );
+          }
+        }
         if (gaiaStars.length > 0) {
-          cat.addSources(
-            gaiaStars.map((s) =>
-              A.source(s.ra, s.dec, {
-                "G mag": s.g !== null ? s.g.toFixed(2) : "—",
-                "pm RA (mas/yr)": s.pmra.toFixed(1),
-                "pm Dec (mas/yr)": s.pmdec.toFixed(1),
-              }),
-            ),
-          );
           setGaiaNote(`${gaiaStars.length} Gaia DR3 stars drawn (field catalogue).`);
         } else {
           setGaiaNote("Gaia DR3 overlay unavailable offline.");
@@ -273,7 +442,7 @@ export function SkyContextAladin({ wcs, shape, gaiaStars, streak }: Props) {
       });
 
     return () => ac.abort();
-  }, [open, loading, showGaiaCatalog, ra, dec, contextFovDeg, gaiaStars]);
+  }, [open, loading, fallbackMode, showGaiaCatalog, ra, dec, contextFovDeg, gaiaStars]);
 
   return (
     <div className="border-t border-white/10 pt-3">
@@ -292,29 +461,41 @@ export function SkyContextAladin({ wcs, shape, gaiaStars, streak }: Props) {
 
       {open && (
         <div className="mt-2.5 space-y-2">
-          <div className="relative h-56 w-full overflow-hidden rounded-lg border border-white/10 bg-slate-950">
-            <div ref={hostRef} className="h-full w-full" />
-            {loading && (
-              <div className="absolute inset-0 flex items-center justify-center bg-slate-950/80 text-xs text-slate-400">
-                Loading Aladin Lite…
-              </div>
-            )}
-            {error && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-950/90 p-3 text-center text-xs text-amber-300">
-                <span>{error}</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    aladinLoader = null;
-                    setRetryKey((k) => k + 1);
-                  }}
-                  className="rounded border border-amber-400/40 px-2.5 py-1 text-[11px] text-amber-200 hover:bg-amber-400/10"
-                >
-                  Retry
-                </button>
-              </div>
-            )}
-          </div>
+          {fallbackMode ? (
+            <FinderChartFallback
+              ra={ra}
+              dec={dec}
+              fovDeg={contextFovDeg}
+              footprintCorners={footprintCorners}
+              streak={streak}
+              stars={fallbackStars}
+              showGaia={showGaiaCatalog}
+            />
+          ) : (
+            <div className="relative h-56 w-full overflow-hidden rounded-lg border border-white/10 bg-slate-950">
+              <div ref={hostRef} className="h-full w-full" />
+              {loading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-slate-950/80 text-xs text-slate-400">
+                  Loading Aladin Lite…
+                </div>
+              )}
+              {error && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-950/90 p-3 text-center text-xs text-amber-300">
+                  <span>{error}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      aladinLoader = null;
+                      setRetryKey((k) => k + 1);
+                    }}
+                    className="rounded border border-amber-400/40 px-2.5 py-1 text-[11px] text-amber-200 hover:bg-amber-400/10"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
             <div className="inline-flex overflow-hidden rounded-md border border-white/10 bg-white/[0.03]">
@@ -345,6 +526,19 @@ export function SkyContextAladin({ wcs, shape, gaiaStars, streak }: Props) {
 
           <p className="text-[11px] leading-snug text-slate-400">
             Wider sky around this target. Orange box = cutout field{streak ? "; red line = measured motion" : ""}.
+            {fallbackMode && (
+              <>
+                {" "}
+                <span className="text-amber-300">CDS HiPS sky tiles offline (404) — showing built-in finder chart.</span>{" "}
+                <button
+                  type="button"
+                  onClick={() => setRetryKey((k) => k + 1)}
+                  className="text-sky-300 underline hover:text-sky-200"
+                >
+                  Retry Aladin
+                </button>
+              </>
+            )}
             {gaiaNote ? ` ${gaiaNote}` : ""}
           </p>
         </div>
