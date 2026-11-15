@@ -232,6 +232,49 @@ Design, from facts L1–L4:
 - **Risks:** IRSA metadata outages (we saw hours of 502s) → keep the baked targets as the dependable path and say clearly when live search is down; S3 egress/rate limits; deep-field positions with 17,000 exposures (sample, as the bake does); a hosted proxy is a service the owner must create and own (account, keys): **owner decision before Tier B**.
 - **Estimate:** Tier A ≈ 1 day; Tier B ≈ 3–4 days including the TS port and golden tests.
 
+## 6c. Science-grade roadmap (planned 2026-11-15)
+
+Goal: from "honest outreach demo" to a tool a researcher could trust and cite. Ordered by how much each item could make the app show something false. Each item has an acceptance check; nothing counts as done without it.
+
+### S1: mask the artefacts we still let through
+The level-2 mask (D13) drops 8 flag types but not TRANSIENT (0, cosmic rays), PERSIST (17), CROSSTALK (20), GHOST/GHOST_FPA/GHOST_EXT (22–24), STREAK (25), BLOOM (26), SNOWBALL (27) or HALO (28). These make fake one-off brightenings, the very thing a change-finder looks for.
+- First measure how often each bit is set in the cached cutouts, overall and in stars' wings (some, like HALO or BLOOM, may cover every bright star's outskirts and would erase data). Then mask the bits that are rare and artefact-only; for wide ones, mask only in the per-exposure photometry and say so.
+- Accept: a table of bit frequencies in `docs/VALIDATION.md`; a test with a synthetic cosmic-ray hit (bit 0) that no longer reaches the stack; field-star repeatability (V4) no worse.
+
+### S2: wavelength-matched difference images (+ sharper colour, same step)
+Problem: a visit stack mixes the wavelengths inside one detector, and each visit samples a slightly different mix, so a star's colour alone can make it look brighter or fainter in a difference image.
+Fix, in the bake: for every exposure also resample its per-pixel wavelength (from `WCS-WAVE`) onto the grid. Stack per visit **per channel** (the 102 channels of the cube's channel table), S[v,k]. The mean over visits, M[k], is a **6.15″ 102-channel map** built from the single exposures. Then each visit's *matched* frame per detector is the weighted mean over its channels of (S[v,k] − M[k]). Differencing two matched frames compares like with like at every wavelength, so static stars cancel whatever their colour.
+- By-product: M[k] gives the Colour view **twice the sharpness (4× the pixels)** of the archive map (6.15″ vs 12.9″), same honesty rules (saturated cores, time-average caveat). Stored as float16 to keep size sane.
+- Accept: on the real targets, the residual at static field stars in difference images drops (measured, before vs after, in `docs/VALIDATION.md`); moving targets keep their ± pair; colour maps from M[k] and from the archive cube agree in shape (as V5); bundle total ≤ 20 MB.
+
+### S3: honest error bars
+- Resampling correlates neighbouring pixels' noise; stacked variances ignore it. Measure the real noise in blank sky of the stacks against the propagated variance, and scale (a per-detector correction factor written into the bundle).
+- Add a systematic floor to photometric errors from validation (the 2–6% catalogue spread, per band) and show both in the panel.
+- Motion fit: errors from the centroid scatter *and* the per-frame centroid noise.
+- Accept: in blank sky, (value / σ) has a standard deviation of 1.0 ± 0.1 in every detector; the light-curve chi² of constant field stars is ≈ 1 per degree of freedom.
+
+### S4: injection–recovery
+Plant fake stars of known brightness, and fake movers of known speed, into the real exposures (using SPHEREx's own PSF from the `EPSF` extension), run the whole bake on them, and measure what comes back.
+- Outputs: completeness (fraction recovered) and bias vs brightness; motion recovered vs injected; photometric error vs brightness. Written to `docs/VALIDATION.md` and shown in "How accurate is this?" as "the faintest star / slowest motion we can reliably measure here".
+- Accept: recovered flux bias < 2% above 10σ; motion recovered within its stated error for ≥ 90% of injections.
+
+### S5: getting data out (and in)
+- Export the current view as FITS with full WCS and provenance headers; spectra/light curves as ECSV (units, flags, errors, wavelength and bandwidth per point) next to CSV.
+- SAMP (the VO standard link) to send images and tables to TOPCAT, Aladin and DS9 with one click.
+- Citable: `CITATION.cff`, a Zenodo DOI per tagged release; CI (GitHub Actions) running pytest, bun test, typecheck and build on every push.
+- Accept: exported FITS opens in DS9/astropy with correct coordinates (test); ECSV round-trips through astropy (test); CI green.
+
+### S6: PSF photometry
+Fit SPHEREx's per-exposure PSF (`EPSF`, today discarded) instead of summing an aperture: separates close pairs, measures saturated stars from their unsaturated wings, removes the aperture correction.
+- Accept: on injected pairs 2 px apart both fluxes recovered within 5%; on saturated targets, wing-fit fluxes consistent across visits; WISE 0855 re-tested (can its 4.6 µm light be separated from the neighbour?).
+
+### S7: coverage and review
+- M7 live mode (any coordinate), batch lists, and new fields where SPHEREx isn't saturated, including an ices field (SPHEREx's own science goal).
+- Accessibility audit to Section 508 (axe + manual keyboard and screen-reader pass).
+- Outside review: IRSA helpdesk and, if possible, SPHEREx science-team members; their findings go in the build log.
+
+Order of work: S1 → S2 → S3 → S4 → S5 → S6 → S7 (S7's review last, once there is something solid to review).
+
 ### Last: hosting and demo kit (old "step 1")
 GitHub Pages from the owner's public repo, a 30-second video following the tour, slides, the challenge-statement mapping, and target swaps (RW Aur → Teegarden's Star; keep WISE 0855 as the "why it can't be seen" lesson).
 
