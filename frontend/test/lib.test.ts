@@ -231,3 +231,26 @@ test("two-part error model: err² = (scale·σ)² + (floor·flux)², per method"
   expect(spPoints(s, src, "core")[0].err).toBeCloseTo(5, 10); // hypot(3·1, 0.04·100)
   expect(spPoints(s, src, "psf")[0].err).toBeCloseTo(2, 10);
 });
+
+import { loadRemoteIndex, REMOTE_DATA_ROOT, resolveRemoteDataRoot } from "../src/lib/bundle";
+test("resolveRemoteDataRoot honors safe ?data= overrides and rejects unsafe schemes", () => {
+  expect(resolveRemoteDataRoot("")).toBe(REMOTE_DATA_ROOT);
+  expect(resolveRemoteDataRoot("?data=https://example.github.io/data/")).toBe("https://example.github.io/data");
+  expect(resolveRemoteDataRoot("?data=http://127.0.0.1:8080/data")).toBe("http://127.0.0.1:8080/data");
+  expect(resolveRemoteDataRoot("?data=http://evil.example.com/data")).toBe(REMOTE_DATA_ROOT);
+  expect(resolveRemoteDataRoot("?data=javascript:alert(1)")).toBe(REMOTE_DATA_ROOT);
+});
+
+test("loadRemoteIndex rewrites base URLs and swallows network/HTTP errors", async () => {
+  const okFetch = (async () =>
+    new Response(JSON.stringify({ targets: [{ id: "ngc-1333", name: "NGC 1333" }] }), { status: 200 })) as unknown as typeof fetch;
+  const entries = await loadRemoteIndex("https://jake999999999.github.io/spherex-blink-data/", okFetch);
+  expect(entries).toHaveLength(1);
+  expect(entries[0].base).toBe("https://jake999999999.github.io/spherex-blink-data/ngc-1333");
+
+  const failFetch = (async () => new Response("Not found", { status: 404 })) as unknown as typeof fetch;
+  expect(await loadRemoteIndex("https://jake999999999.github.io/spherex-blink-data", failFetch)).toEqual([]);
+
+  const throwFetch = (async () => { throw new Error("offline"); }) as unknown as typeof fetch;
+  expect(await loadRemoteIndex("https://jake999999999.github.io/spherex-blink-data", throwFetch)).toEqual([]);
+});

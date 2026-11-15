@@ -149,11 +149,44 @@ export interface Bundle {
 }
 
 export const BENCH_ROOT = "./benchmarks";
+export const REMOTE_DATA_ROOT = "https://jake999999999.github.io/spherex-blink-data";
+
+/** Resolve the remote data root URL, allowing an optional `?data=<url>` override (HTTPS or localhost only). */
+export function resolveRemoteDataRoot(search: string = typeof window !== "undefined" ? window.location.search : ""): string {
+  const param = new URLSearchParams(search).get("data")?.trim();
+  if (param && /^https:\/\/|^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/i.test(param)) {
+    return param.replace(/\/+$/, "");
+  }
+  return REMOTE_DATA_ROOT;
+}
 
 export async function loadIndex(fetchFn: typeof fetch = fetch): Promise<IndexEntry[]> {
   const r = await fetchFn(`${BENCH_ROOT}/index.json`);
   if (!r.ok) throw new Error(`index.json: HTTP ${r.status}`);
   return (await r.json()).targets as IndexEntry[];
+}
+
+/**
+ * Non-blockingly fetch extra baked targets from the secondary data repository (GitHub Pages).
+ * Swallows network/HTTP errors and returns `[]` so offline or pre-push builds are unaffected.
+ */
+export async function loadRemoteIndex(
+  root: string = resolveRemoteDataRoot(),
+  fetchFn: typeof fetch = fetch,
+): Promise<IndexEntry[]> {
+  const cleanRoot = root.replace(/\/+$/, "");
+  try {
+    const r = await fetchFn(`${cleanRoot}/index.json`);
+    if (!r.ok) return [];
+    const data = await r.json();
+    const targets = Array.isArray(data?.targets) ? (data.targets as IndexEntry[]) : [];
+    return targets.map((t) => ({
+      ...t,
+      base: t.base ?? `${cleanRoot}/${encodeURIComponent(t.id)}`,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 export function parseBundle(

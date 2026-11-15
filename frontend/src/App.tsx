@@ -12,7 +12,7 @@ import { ColourIntro } from "./components/ColourIntro";
 import { Tour } from "./components/Tour";
 import { availableSteps, type TourContext, type TourSetup } from "./lib/tour";
 import { MEM_PREFIX, memFetch } from "./lib/browser/fieldbuild";
-import { flagPlane as flagPlaneOf, framePlane, loadBundle, loadIndex, matchedPlane, shortName, type Bundle, type IndexEntry } from "./lib/bundle";
+import { flagPlane as flagPlaneOf, framePlane, loadBundle, loadIndex, loadRemoteIndex, matchedPlane, resolveRemoteDataRoot, shortName, type Bundle, type IndexEntry } from "./lib/bundle";
 import { TargetBar } from "./components/TargetBar";
 import { Timeline } from "./components/Timeline";
 import { WavelengthPicker } from "./components/WavelengthPicker";
@@ -125,11 +125,32 @@ export default function App() {
   const [mapPoint, setMapPoint] = useState<{ x: number; y: number; mx: number; my: number; ra: number; dec: number } | null>(null);
   const frameWant = useRef<TourSetup["frame"] | null>(null);
 
-  // index, then the chosen target
+  // index, then the chosen target (plus non-blocking merge from secondary data repo)
   useEffect(() => {
+    let cancelled = false;
     loadIndex()
-      .then(setIndex)
-      .catch((e) => setError(`No baked targets found (${e.message}). Run the bake step in backend/.`));
+      .then((local) => {
+        if (cancelled) return;
+        setIndex(local);
+        loadRemoteIndex().then((remote) => {
+          if (cancelled || remote.length === 0) return;
+          setIndex((prev) => {
+            const base = prev ?? local;
+            const seen = new Set(base.map((t) => t.id));
+            const extra = remote.filter((t) => !seen.has(t.id));
+            return extra.length > 0 ? [...base, ...extra] : base;
+          });
+        });
+      })
+      .catch((e) => {
+        // if local index.json is missing, still try the remote data repo before failing
+        loadRemoteIndex().then((remote) => {
+          if (cancelled) return;
+          if (remote.length > 0) setIndex(remote);
+          else setError(`No baked targets found (${e.message}). Run the bake step in backend/.`);
+        });
+      });
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -140,7 +161,12 @@ export default function App() {
     if (!id) return;
     let live = true;
     setLoadingId(id); // keep showing the old target until the new one is ready
-    loadBundle(id, entry.base?.startsWith(MEM_PREFIX) ? memFetch : fetch, entry.base)
+    const fetcher = entry.base?.startsWith(MEM_PREFIX) ? memFetch : fetch;
+    loadBundle(id, fetcher, entry.base)
+      .catch((err) => {
+        if (entry.base) throw err;
+        return loadBundle(id, fetch, `${resolveRemoteDataRoot()}/${encodeURIComponent(id)}`);
+      })
       .then((b) => {
         if (!live) return;
         setBundle(b);
