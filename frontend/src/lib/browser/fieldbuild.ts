@@ -345,6 +345,47 @@ export async function buildField(req: FieldRequest, onProgress: (p: Progress) =>
   return out;
 }
 
+// ---------------------------------------------------------------- shared bundle files
+
+/** The files a bundle may have (same list as the local server serves). */
+export const BUNDLE_FILES = ["meta.json", "gaia.json", "spectra.json", "frames.bin", "cube.bin", "finecube.bin", "flags.bin", "neowise.bin"];
+const MAX_BUNDLE_FILE = 60 * 1024 * 1024;
+
+/**
+ * A field someone made with the pipeline (`python -m spherex_blink field …`, or a built-in target's
+ * folder), dropped as its files. Returns the in-memory files and what to show, or an error message.
+ * The view is labelled as shared files: nothing here was checked against NASA's archive.
+ */
+export async function readBundleFiles(files: File[]): Promise<{ files: BundleFiles; name: string; ra: number; dec: number; fov: number } | string> {
+  const byName = new Map(files.map((f) => [f.name, f]));
+  const meta = byName.get("meta.json");
+  if (!meta) return "A shared field needs its meta.json (drop all the files of the field's folder together).";
+  if (!byName.has("frames.bin")) return "A shared field needs its frames.bin.";
+  const out: BundleFiles = {};
+  for (const [name, f] of byName) {
+    if (!BUNDLE_FILES.includes(name)) continue;
+    if (f.size > MAX_BUNDLE_FILE) return `${name} is too large for a field bundle.`;
+    out[name] = name.endsWith(".json") ? await f.text() : await f.arrayBuffer();
+  }
+  let m: Meta;
+  try {
+    m = JSON.parse(out["meta.json"] as string);
+  } catch {
+    return "meta.json isn't valid JSON.";
+  }
+  const [ra, dec] = m?.wcs?.crval ?? [];
+  if (!Number.isFinite(ra) || !Number.isFinite(dec) || !Number.isFinite(m.fov_arcmin) || !m.layout?.frames) return "meta.json doesn't look like a SPHEREx Blink field.";
+  // React shows text as text; only control and bidi-override characters are removed
+  const clean = (s: unknown, n: number) => String(s ?? "").replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, "").slice(0, n);
+  m.name = clean(m.name, 80) || `RA ${ra.toFixed(3)}°, Dec ${dec.toFixed(3)}°`;
+  m.tagline = "Shared files · not checked against NASA's archive";
+  m.notes = ["Opened from files someone shared: the numbers come from those files and were not checked against NASA's archive.", ...(Array.isArray(m.notes) ? m.notes.map((x) => clean(x, 600)) : [])];
+  if (m.provenance) m.provenance.label = `${clean(m.provenance.label, 80)} · shared files, unverified`;
+  if (!out["gaia.json"]) out["gaia.json"] = JSON.stringify({ ref_year: 2016, stars: [] });
+  out["meta.json"] = JSON.stringify(m);
+  return { files: out, name: m.name, ra, dec, fov: m.fov_arcmin };
+}
+
 // ---------------------------------------------------------------- in-memory bundles for loadBundle()
 
 const store = new Map<string, BundleFiles>();

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ExternalLink, FileUp, Loader2, Search, X } from "lucide-react";
 import { looksLikeCoords, parseCoords } from "../lib/coords";
 import { formatDec, formatRa } from "../lib/wcs";
-import { estimateBytesPerExposure, putMemBundle, type BundleFiles, type Progress } from "../lib/browser/fieldbuild";
+import { BUNDLE_FILES, estimateBytesPerExposure, putMemBundle, readBundleFiles, type BundleFiles, type Progress } from "../lib/browser/fieldbuild";
 import { irsaSearchUrl, MAX_LIST_BYTES, parseExposureList, sampleByVisit, type ExposureRef } from "../lib/browser/exposures";
 import { resolveNameInBrowser, startBrowserBuild, type BuildHandle } from "../lib/browser/client";
 import type { CubeDesc } from "../lib/colour";
@@ -149,6 +149,16 @@ export function BrowserFetch({ onReady, autostart }: Props) {
   };
 
   const takeFiles = async (files: File[]) => {
+    // a whole field made by the pipeline (meta.json, frames.bin, …), shared as files
+    if (files.some((f) => f.name === "meta.json")) {
+      const r = await readBundleFiles(files.filter((f) => BUNDLE_FILES.includes(f.name)));
+      if (typeof r === "string") return setErr(r);
+      const id = `f-${Date.now().toString(36)}`;
+      putMemBundle(id, r.files);
+      setErr(null);
+      setMsg(`Opened the shared field “${r.name}”.`);
+      return onReady({ id, name: r.name, ra: r.ra, dec: r.dec, fov: r.fov, browser: true, shared: true });
+    }
     if (!field) return setErr("Type the position first, then drop the files.");
     const fits = files.filter((f) => /\.fits?(\.gz)?$/i.test(f.name) || f.type === "application/fits");
     const other = files.filter((f) => !fits.includes(f));
@@ -211,7 +221,13 @@ export function BrowserFetch({ onReady, autostart }: Props) {
       </form>
 
       <p className="mt-1.5 text-[11px] text-slate-400">
-        Runs in this browser, straight from NASA's public copy of SPHEREx on Amazon S3 (no server needed). The 102-colour map comes first, in seconds.
+        Runs in this browser, straight from NASA's public copy of SPHEREx on Amazon S3 (no server needed). The 102-colour map comes first, in seconds. Someone
+        shared a field with you? Drop all its files (meta.json, frames.bin, …) here, or{" "}
+        <label className="cursor-pointer text-sky-300 underline">
+          choose them
+          <input type="file" multiple accept=".json,.bin" className="sr-only" onChange={(e) => void takeFiles([...(e.target.files ?? [])])} />
+        </label>
+        .
       </p>
 
       {(busy || msg || err) && (

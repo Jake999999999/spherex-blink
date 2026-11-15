@@ -18,7 +18,7 @@ A NASA Space Apps Challenge 2026 entry. Not a NASA product.
 - **Click any marked star** for its spectrum (one dot per SPHEREx exposure), its light curve and a table/CSV of every measurement.
 - **Colour**: false-colour pictures from SPHEREx's 102-colour all-sky map, with presets (methane, water, warm dust) or your own three wavelength windows. Brown dwarfs turn pink in the methane view. Click any point for its map spectrum.
 - **Measure motion**: centroid a moving star in each frame and fit its speed, compared with ESA's Gaia catalogue.
-- **How accurate is it?** Checked against 2MASS, WISE and Gaia: brightness within 3%, positions within 0.6″, motions within 1% (see [`docs/VALIDATION.md`](docs/VALIDATION.md)).
+- **How accurate is it?** Checked against 2MASS, WISE and Gaia: brightness within 3% (star-to-star scatter 1–4% with PSF fitting), positions within 0.7″, motions within 1.3% (see [`docs/VALIDATION.md`](docs/VALIDATION.md)).
 - **Listen and read**: every spectrum and light curve can be played as sound and comes with a plain-language summary; single-key shortcuts can be switched off; blinking never exceeds 3 changes per second.
 - **Guided tour** (two minutes) for first-time visitors.
 - **Shareable links**: the view (target, mode, wavelength, visits) is kept in the URL.
@@ -77,6 +77,8 @@ uv run python -m spherex_blink validate      # accuracy report: docs/VALIDATION.
 - [`docs/HOW-IT-WORKS.md`](docs/HOW-IT-WORKS.md): the science and the processing, step by step.
 - [`docs/VALIDATION.md`](docs/VALIDATION.md): how accurate the numbers are, computed against 2MASS, WISE and Gaia.
 - [`docs/BUILD-LOG.md`](docs/BUILD-LOG.md): how this was built, what went wrong and what we changed.
+- [`docs/GET-THE-DATA.md`](docs/GET-THE-DATA.md): what the public site can fetch by itself, and how to bring in data you downloaded (or a field someone shared).
+- [`docs/ROADMAP.md`](docs/ROADMAP.md): what is done and what is planned.
 - [`PLAN.md`](PLAN.md): verified data facts with sources, milestones and status.
 - [`SPEC-original.md`](SPEC-original.md): the first, unverified spec this project started from (kept for the record; several of its facts were wrong).
 

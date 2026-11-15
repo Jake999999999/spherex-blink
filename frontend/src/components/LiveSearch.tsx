@@ -13,6 +13,8 @@ export interface LiveResult {
   fov: number;
   /** built in this browser (no server) */
   browser?: boolean;
+  /** opened from files someone shared */
+  shared?: boolean;
 }
 
 interface Props {
