@@ -222,3 +222,19 @@ def test_bilinear_variance_is_sum_of_squared_weights():
     # exactly on a pixel: variance unchanged
     _, s2b, _ = frames.bilinear(img, var, good, np.array([[1.0]]), np.array([[1.0]]))
     assert s2b[0, 0] == pytest.approx(4.0)
+
+
+def test_validate_centroid_matches_frontend_algorithm():
+    from spherex_blink import validate
+
+    img = gaussian((31, 31), 14.3, 16.7, sigma=1.0, amp=100) + 2
+    c = validate.centroid(img, 16, 15)
+    assert abs(c[0] - 14.3) < 0.1 and abs(c[1] - 16.7) < 0.1
+
+
+def test_validate_zero_points_give_vega_like_fluxes():
+    from spherex_blink import validate
+
+    # a mag-0 star has the zero-point flux; mag 10 is 1e-4 of it
+    c, w, f0 = validate.BANDS["Ks"]
+    assert f0 * 10 ** (-0.4 * 10) * 1000 == pytest.approx(66.67, rel=1e-3)

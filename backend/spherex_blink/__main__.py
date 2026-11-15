@@ -19,7 +19,22 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("targets", help="list demo targets")
     sub.add_parser("index", help="rewrite frontend/public/benchmarks/index.json from the baked bundles")
     sub.add_parser("retext", help="refresh names/notes in baked bundles from targets.py (no network)")
+    sub.add_parser("validate", help="compare baked numbers with 2MASS/AllWISE/Gaia; write validation.json and docs/VALIDATION.md")
     args = ap.parse_args(argv)
+
+    if args.cmd == "validate":
+        from .validate import run
+
+        r = run()
+        for b, v in r["photometry"]["bands"].items():
+            print(f"{b:3s} n={v['n']:3d} ours/catalogue {v['median_ratio']:.2f} spread {v['scatter'] * 100:.0f}%")
+        print(f"positions: median {r['astrometry']['median_arcsec']:.2f}\" over {r['astrometry']['n']}")
+        for k, v in r["motion"].items():
+            print(f"motion {k}: {v['measured']:.2f} vs Gaia {v['gaia']:.2f} ({v['diff_pct']:+.1f}%)")
+        print(f"repeatability: median {r['repeatability']['median'] * 100:.1f}%")
+        if r["map_vs_exposures"]["median_ratio"] is not None:
+            print(f"map/exposures: {r['map_vs_exposures']['median_ratio']:.2f}, spread {r['map_vs_exposures']['median_scatter'] * 100:.0f}%")
+        return 0
 
     if args.cmd == "retext":
         from .bake import retext

@@ -3,6 +3,7 @@ import { RotateCcw, Compass, Route, Keyboard, TriangleAlert, Activity, ChevronRi
 import { GAIA_G_LIMIT, SkyCanvas, formatHover, type HoverInfo, type SkyCanvasHandle } from "./components/SkyCanvas";
 import { SpectrumPanel, type MapOverlay, type PanelTab } from "./components/SpectrumPanel";
 import { ColourMixer } from "./components/ColourMixer";
+import { Accuracy } from "./components/Accuracy";
 import { PRESETS, colourLevels, mainToCube, mapSpectrum, mapSpectrumCaveat, windowMean, type Mix } from "./lib/colour";
 import { Tour } from "./components/Tour";
 import { availableSteps, type TourContext, type TourSetup } from "./lib/tour";
@@ -875,6 +876,13 @@ export default function App() {
               <dd>{separationArcsec(...t.pos_2010, ...t.pos_now).toFixed(0)}″ moved</dd>
             </dl>
             <p className="mt-2 text-[11px] text-slate-500">{t.source}. Parallax ignored.</p>
+          </details>
+
+          <details className="group">
+            <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-300">
+              <ChevronRight size={14} className="transition group-open:rotate-90" /> How accurate is this?
+            </summary>
+            <Accuracy target={m.id} />
           </details>
 
           <details className="group">
