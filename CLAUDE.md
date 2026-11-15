@@ -2,7 +2,7 @@
 
 NASA Space Apps 2026 entry: blink comparator, epoch difference and spectrum explorer for NASA's SPHEREx survey, on real IRSA data. **Read `PLAN.md` first** (verified data facts, targets, milestones, acceptance checks). `SPEC-original.md` is the unverified pasted spec: do not take facts from it.
 
-Status: M1 code built (2026-11-14); see PLAN.md status line. `uv run python -m spherex_blink bake all` (or ids) fetches + bakes; re-running reuses the cutout cache in `backend/cache/` and retries failures. `... index` rewrites `index.json`. Bake log of the first run: `backend/cache/bake.log`. Vite can serve a stale module after many edits: restart the preview server.
+Status (2026-11-15): built-in targets, colour, validation, live mode; see PLAN.md progress lines. Live server: `uv run python -m spherex_blink serve` (127.0.0.1:8091; Vite proxies /api); one-off field: `uv run python -m spherex_blink field --ra … --dec … --fov … --id <16 hex> --out <dir outside frontend/public>`. Validation: `… validate` (and `… inject` first for S4). `uv run python -m spherex_blink bake all` (or ids) fetches + bakes; re-running reuses the cutout cache in `backend/cache/` and retries failures. `... index` rewrites `index.json`. Bake log of the first run: `backend/cache/bake.log`. Vite can serve a stale module after many edits: restart the preview server.
 
 ## Run and test
 
@@ -22,7 +22,7 @@ Status: M1 code built (2026-11-14); see PLAN.md status line. `uv run python -m s
 - **Never show simulated data as real.** No automatic synthetic fallback. Anything simulated carries the `SIMULATED` watermark and badge. Every view shows its data source.
 - Don't call the targets "NASA benchmarks" or the app a NASA product.
 - Ask the owner before: fetching more data than the M1 set (cutouts are ~4 MB each; a target is ~1.5 GB of transfer), installing anything, pushing, making the repo public.
-- Commit `frontend/public/benchmarks/` (≤ 5 MB per target since S2 added the 6.15″ map and matched frames; ≤ 20 MB total). Never commit `backend/cache/` or raw FITS.
+- Commit `frontend/public/benchmarks/` (≤ 6 MB per target since S2 and NEOWISE frames; ≤ 20 MB total). Never commit `backend/cache/` or raw FITS.
 
 ## Gotchas (all checked against live IRSA, see PLAN.md §2)
 

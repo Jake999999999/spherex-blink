@@ -8,6 +8,8 @@ A NASA Space Apps Challenge 2026 entry. Not a NASA product.
 
 ## What you can do
 
+- **Any spot in the sky**: type a name (“R Draconis”) or coordinates (`08h55m10.831s -07d14m42.53s`, `133.795 -7.245`), choose the field of view (2–15′), and the app fetches the SPHEREx exposures, the 2010 WISE images and Gaia stars for that patch from NASA's and ESA's archives, processes them and shows them like a little video. A link with `?ra=…&dec=…&fov=…` opens the same view (embeddable). This needs the small local server below.
+
 - **Blink** between the SPHEREx visits of a patch of sky, plus a 2010 image from NASA's WISE telescope. Fast-moving nearby stars visibly jump.
 - **Difference**: subtract an older visit from a newer one. Stars that didn't change disappear; a moving object leaves an amber/cyan pair, a brightening star turns amber.
 - **Pick a wavelength**: SPHEREx's six detectors cover 0.75–5.0 µm. Cool objects (brown dwarfs) get brighter at long wavelengths.
@@ -27,6 +29,7 @@ A NASA Space Apps Challenge 2026 entry. Not a NASA product.
 | Epsilon Indi Ba+Bb | Two brown dwarfs. Their spectrum shows water, methane, CO₂ and CO absorption. |
 | Pulsating red giant (Gaia DR3 2160548942811758720) | A star near the north ecliptic pole, seen daily by SPHEREx, dimming by about a third and brightening again over 18 months. |
 | RW Aurigae | A young star in a dusty disc (shown with caveats: saturated at most wavelengths). |
+| R Draconis | A Mira variable that pulses every 245 days; saturated in SPHEREx, so its light curve uses a ring around the centre. |
 | WISE 0855−0714 | The coldest known brown dwarf. In 2025–26 it sits next to a brighter star SPHEREx can't separate, so the app says plainly that this is not a detection. |
 
 Every frame shows where its data comes from. Nothing in the app is simulated.
@@ -40,6 +43,15 @@ cd frontend
 bun install
 bun run dev        # http://127.0.0.1:5186
 ```
+
+For **any position in the sky** (fetching live from NASA), also start the local server in a second terminal. It needs [uv](https://docs.astral.sh/uv/) and Python 3.12, listens only on your own computer (127.0.0.1:8091), and the dev server forwards `/api` to it:
+
+```bash
+cd backend
+uv run python -m spherex_blink serve
+```
+
+A quick look (up to 6 visits, 4 exposures per visit and detector) takes about 1–3 minutes, depending on IRSA; “all data” takes longer. Results are cached in `backend/cache/live/` (the newest 25 are kept). Without the server, the built-in targets still work.
 
 The processed data for all five targets (6 MB) is committed in `frontend/public/benchmarks/`, so the app needs no server and works offline. `bun run build` produces a static site in `frontend/dist/` that can be hosted anywhere (it uses relative paths, so a subfolder such as GitHub Pages works).
 

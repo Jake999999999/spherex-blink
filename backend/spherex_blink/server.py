@@ -52,6 +52,7 @@ FILES = {
     "cube.bin": "application/octet-stream",
     "finecube.bin": "application/octet-stream",
     "flags.bin": "application/octet-stream",
+    "neowise.bin": "application/octet-stream",
 }
 SESAME = "https://cds.unistra.fr/cgi-bin/nph-sesame/-oxp/SNV"
 BACKEND = Path(__file__).resolve().parents[1]

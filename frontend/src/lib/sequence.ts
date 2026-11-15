@@ -1,10 +1,12 @@
 // What the blink cycles through, and which texture layer each step uses.
 // Texture layers: SPHEREx epoch e, detector d -> e*6 + (d-1); WISE frame i -> E*6 + i.
-import { bandAvailable, framePlane, matchedPlane, wiseForDetector, wisePlane, type Bundle } from "./bundle";
+import { bandAvailable, framePlane, matchedPlane, neowisePlane, wiseForDetector, wisePlane, type Bundle } from "./bundle";
 import { formatMjdRange } from "./astro";
 
 export interface Step {
   kind: "spherex" | "wise";
+  /** for WISE frames: the 2010 AllWISE atlas or a NEOWISE yearly stack */
+  source?: { kind: "allwise" | "neowise"; index: number };
   layer: number;
   epoch: number; // SPHEREx epoch index, or -1 for WISE
   mjd: number;
@@ -16,6 +18,14 @@ export const layerOf = (epoch: number, detector: number) => epoch * 6 + (detecto
 export const wiseLayer = (b: Bundle, i: number) => b.meta.epochs.length * 6 + i;
 export const matchedLayer = (b: Bundle, epoch: number, detector: number) =>
   b.meta.epochs.length * 6 + b.meta.wise.length + epoch * 6 + (detector - 1);
+export const neowiseLayer = (b: Bundle, i: number) =>
+  b.meta.epochs.length * 6 + b.meta.wise.length + (b.meta.layout.matched ? b.meta.epochs.length * 6 : 0) + i;
+
+/** The raw plane behind a blink step (for levels, hover values, export, motion). */
+export function stepPlane(b: Bundle, s: Step, detector: number): Float32Array {
+  if (s.kind === "wise") return s.source?.kind === "neowise" ? neowisePlane(b, s.source.index) : wisePlane(b, s.source?.index ?? s.layer - b.meta.epochs.length * 6);
+  return framePlane(b, s.epoch, detector);
+}
 
 /**
  * Display-only fill for saturated star cores. A saturated pixel has no value (NaN), which would draw
@@ -66,10 +76,11 @@ export function allPlanes(b: Bundle): Float32Array[] {
   for (let i = 0; i < b.meta.wise.length; i++) planes.push(wisePlane(b, i));
   // S2 matched frames after the WISE ones (no saturated-core fill: these are differences)
   if (b.meta.layout.matched) for (let e = 0; e < b.meta.epochs.length; e++) for (let d = 1; d <= 6; d++) planes.push(matchedPlane(b, e, d)!);
+  if (b.neowise) for (let i = 0; i < (b.meta.neowise?.frames.length ?? 0); i++) planes.push(neowisePlane(b, i));
   return planes;
 }
 
-export function blinkSteps(b: Bundle, detector: number, includeWise: boolean): Step[] {
+export function blinkSteps(b: Bundle, detector: number, includeWise: boolean, includeNeowise = true): Step[] {
   const steps: Step[] = [];
   if (includeWise) {
     const wi = wiseForDetector(b, detector);
@@ -82,6 +93,23 @@ export function blinkSteps(b: Bundle, detector: number, includeWise: boolean): S
         mjd: w.mjd,
         label: "WISE 2010",
         sublabel: `AllWISE ${w.band} ${w.wavelength_um} µm · ${formatMjdRange(w.mjd_min, w.mjd_max)}`,
+        source: { kind: "allwise", index: wi },
+      });
+    }
+    // NEOWISE yearly stacks, same band as the 2010 frame
+    if (includeNeowise && b.neowise && b.meta.neowise) {
+      const want = detector >= 5 ? "W2" : "W1";
+      b.meta.neowise.frames.forEach((f, i) => {
+        if (f.band !== want) return;
+        steps.push({
+          kind: "wise",
+          layer: neowiseLayer(b, i),
+          epoch: -1,
+          mjd: f.mjd,
+          label: `WISE ${Math.floor(2000 + (f.mjd - 51544.5) / 365.25)}`,
+          sublabel: `NEOWISE ${f.band} ${f.wavelength_um} µm · ${formatMjdRange(f.mjd_min, f.mjd_max)} · ${f.n} exposures`,
+          source: { kind: "neowise", index: i },
+        });
       });
     }
   }

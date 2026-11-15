@@ -154,6 +154,20 @@ Clicking in colour mode gives the **map spectrum** of that spot: the same 15.4�
 - Every chart has a sentence underneath, generated from the data: where the spectrum peaks and which dips line up with reference bands (only dips deeper than 25% *and* well above the noise), or whether a light curve changes. Light curves are first divided by the star's typical brightness at each wavelength and compared visit by visit, so a star that is merely brighter at some wavelengths than others isn't called variable.
 - Other accessibility rules: blinking is capped at 3 frame changes per second (the WCAG flash limit) and doesn't start on its own if the system asks for reduced motion; frame changes are announced to screen readers only when you step, not during playback; the sky view has a text description; single-key shortcuts can be switched off in Help and are ignored while typing or using a slider; small text is at least 7.9:1 contrast.
 
+### 3.6b Any position in the sky (`server.py`, `LiveSearch.tsx`)
+
+Web pages can't query IRSA or Gaia directly (their services send no CORS headers), so a small local server does it. It uses only Python's standard library and listens on 127.0.0.1:8091; Vite forwards `/api` to it.
+
+- **Name lookup:** CDS Sesame (SIMBAD/NED) turns a name into a position. Coordinates are read in decimal degrees or sexagesimal (`08h55m10.8s -07d14m42.5s`, `08:55:10.8 -07:14:42.5`).
+- **Fetching and processing:** the server runs `python -m spherex_blink field --ra --dec --fov` in a subprocess: the same pipeline as the built-in targets (SIA search, cutouts, masks, stacks, wavelength-matched frames, 102-channel maps, WISE 2010, Gaia, photometry, flags), with the field centre as the "target". A quick look picks up to 6 visits spread over the whole span and 4 exposures per visit and detector, keeping exactly those visits when stacking. "All data" takes up to 10 visits and 12 exposures per cell.
+- **Safety:** starting a job needs a JSON POST, and the server only answers requests whose Host is this computer (other web pages can't trigger downloads, DNS rebinding is blocked). It sends no CORS headers, validates every input (finite numbers, Dec within ±90°, field 2–15′, names up to 64 characters), and serves only an allowlist of bundle files from `backend/cache/live/<16 hex>/`. One job runs at a time, with a 25-minute timeout and a cancel button. Results are written to a temporary folder and renamed only when complete, and the newest 25 are kept. Live results never go into the public site folder.
+- **Fallbacks:** if ESA's Gaia service doesn't answer, Gaia DR3 comes from IRSA's copy. If our 6.15″ map is incomplete (a quick look has too few exposures to fill every channel), Colour uses NASA's map.
+- **Sharing:** while a live field is shown, the URL carries `ra`, `dec` and `fov`, so the link (or an iframe) opens the same patch for anyone running the server.
+
+### 3.6c Contamination flags
+
+For each visit and detector the bake records the share of exposures flagged at every pixel (`flags.bin`) and which flags were set (in `meta.json`). The "Contamination flags" switch tints flagged pixels orange; hovering shows the percentage and the panel lists the flags (for example HALO 3.3%, TRANSIENT 3.2%). Flagged pixels are always left out of the stacks.
+
 ### 3.7 Getting the data out
 
 - **FITS** (button on the image): exactly what's on screen (a visit frame, a difference or the three colour planes), with raw values (never the display-only fills), full sky coordinates and provenance in the header.

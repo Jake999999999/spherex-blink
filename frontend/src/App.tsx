@@ -9,11 +9,11 @@ import { PRESETS, blowOutSaturated, colourLevels, fillPinholes, mainToCube, mapS
 import { ColourIntro } from "./components/ColourIntro";
 import { Tour } from "./components/Tour";
 import { availableSteps, type TourContext, type TourSetup } from "./lib/tour";
-import { flagPlane as flagPlaneOf, framePlane, loadBundle, loadIndex, matchedPlane, shortName, wisePlane, type Bundle, type IndexEntry } from "./lib/bundle";
+import { flagPlane as flagPlaneOf, framePlane, loadBundle, loadIndex, matchedPlane, shortName, type Bundle, type IndexEntry } from "./lib/bundle";
 import { TargetBar } from "./components/TargetBar";
 import { Timeline } from "./components/Timeline";
 import { WavelengthPicker } from "./components/WavelengthPicker";
-import { blinkSteps, epochsWithBand, layerOf, matchedLayer, type Step } from "./lib/sequence";
+import { blinkSteps, epochsWithBand, layerOf, matchedLayer, stepPlane, type Step } from "./lib/sequence";
 import { diffLimit, levelsFor, subtract } from "./lib/stretch";
 import { DEFAULT_STATE, parseLive, parseState, serializeState, type ViewState } from "./lib/urlState";
 import { LiveSearch, type LiveResult } from "./components/LiveSearch";
@@ -184,7 +184,8 @@ export default function App() {
     if (q !== window.location.search.slice(1)) window.history.replaceState(null, "", `?${q}`);
   }, [state, bundle]);
 
-  const steps: Step[] = useMemo(() => (bundle ? blinkSteps(bundle, state.band, state.wise) : []), [bundle, state.band, state.wise]);
+  const [showNeowise, setShowNeowise] = useState(true);
+  const steps: Step[] = useMemo(() => (bundle ? blinkSteps(bundle, state.band, state.wise, showNeowise) : []), [bundle, state.band, state.wise, showNeowise]);
   const step = steps.length ? steps[stepIdx % steps.length] : null;
   const bandEpochs = useMemo(() => (bundle ? epochsWithBand(bundle, state.band) : []), [bundle, state.band]);
 
@@ -198,8 +199,7 @@ export default function App() {
   }, [bundle, bandEpochs, state.band, lo, hi]);
   const wiseLevels = useMemo(() => {
     if (!bundle || !step || step.kind !== "wise") return null;
-    const i = step.layer - bundle.meta.epochs.length * 6;
-    return levelsFor(wisePlane(bundle, i), lo, hi);
+    return levelsFor(stepPlane(bundle, step, state.band), lo, hi);
   }, [bundle, step, lo, hi]);
 
   const diffOk = bundle && bandEpochs.includes(state.t1) && bandEpochs.includes(state.t2) && state.t1 !== state.t2;
@@ -267,7 +267,7 @@ export default function App() {
       const i = y * bundle.width + x;
       if (isDiff && diffData) return diffData[i];
       if (!step) return null;
-      const p = step.kind === "wise" ? wisePlane(bundle, step.layer - bundle.meta.epochs.length * 6) : framePlane(bundle, step.epoch, state.band);
+      const p = stepPlane(bundle, step, state.band);
       return Number.isFinite(p[i]) ? p[i] : null;
     },
     [bundle, isDiff, diffData, step, state.band],
@@ -513,7 +513,7 @@ export default function App() {
       name += `-diff-v${state.t2 + 1}-v${state.t1 + 1}-d${state.band}`;
     } else if (step) {
       const wise = step.kind === "wise";
-      data = wise ? wisePlane(bundle, step.layer - m.epochs.length * 6) : framePlane(bundle, step.epoch, state.band);
+      data = stepPlane(bundle, step, state.band);
       axes = [bundle.width, bundle.height];
       extra = wise
         ? [card("TELESCOP", "WISE"), card("BUNIT", "DN"), card("MJD-AVG", step.mjd), ...longCards("COMMENT", `AllWISE atlas image resampled to the SPHEREx grid. ${m.provenance.wise}.`)]
@@ -542,11 +542,11 @@ export default function App() {
     const pts = steps
       .map((s) => {
         const year = mjdToYear(s.mjd);
-        const plane = s.kind === "wise" ? wisePlane(bundle, s.layer - bundle.meta.epochs.length * 6) : framePlane(bundle, s.epoch, state.band);
+        const plane = stepPlane(bundle, s, state.band);
         const [ra, dec] = propagate(selected.ra, selected.dec, selected.pmra, selected.pmdec, selected.ref_year, year);
         const [sx, sy] = worldToPixel(bundle.meta.wcs, ra, dec);
         const c = centroid(plane, bundle.width, bundle.height, sx, sy, 3);
-        return c ? { year, x: c.x, y: c.y, label: s.kind === "wise" ? "2010" : `V${s.epoch + 1}` } : null;
+        return c ? { year, x: c.x, y: c.y, label: s.kind === "wise" ? s.label.replace("WISE ", "") : `V${s.epoch + 1}` } : null;
       })
       .filter((p): p is { year: number; x: number; y: number; label: string } => !!p);
     return { expectedPx, pts, fit: fitMotion(pts, scale) };
@@ -652,7 +652,12 @@ export default function App() {
   const targetPm = Math.hypot(t.pmra, t.pmdec) / 1000; // arcsec/yr
   const det = m.detectors[state.band - 1];
 
-  const sourceLabel = !isDiff && step?.kind === "wise" ? "AllWISE 2010 · NASA/JPL-Caltech/UCLA via IRSA" : `${m.provenance.label} · NASA/JPL-Caltech/IPAC`;
+  const sourceLabel =
+    !isDiff && step?.kind === "wise"
+      ? step.source?.kind === "neowise"
+        ? "NEOWISE single exposures, median per visit · NASA/JPL-Caltech/UCLA via IRSA"
+        : "AllWISE 2010 · NASA/JPL-Caltech/UCLA via IRSA"
+      : `${m.provenance.label} · NASA/JPL-Caltech/IPAC`;
 
   return (
     <div className="flex h-full flex-col">
@@ -786,7 +791,7 @@ export default function App() {
                     ? `${formatMjdMonth(m.epochs[state.t2].mjd)} minus ${formatMjdMonth(m.epochs[state.t1].mjd)}`
                     : step
                       ? step.kind === "wise"
-                        ? "2010"
+                        ? step.label.replace("WISE ", "")
                         : `Visit ${step.epoch + 1} · ${formatMjdRange(m.epochs[step.epoch].mjd_min, m.epochs[step.epoch].mjd_max)}`
                       : "No frames at this wavelength"}
                 </span>
@@ -1035,6 +1040,15 @@ export default function App() {
               disabled={!m.wise.length}
               onChange={(v) => set({ wise: v })}
             />
+            {bundle.neowise && (
+              <Toggle
+                label="NEOWISE yearly images (2014–2024)"
+                hint={`${m.neowise?.frames.length ?? 0} more WISE frames, about two a year: a nearby star's motion becomes a smooth 16-year video`}
+                checked={showNeowise && state.wise}
+                disabled={!state.wise}
+                onChange={setShowNeowise}
+              />
+            )}
             <Toggle label="Gaia star markers" hint={`Where ESA's Gaia catalogue puts stars (G < ${GAIA_G_LIMIT}) on each date`} checked={showGaia} onChange={setShowGaia} />
             {bundle.flags && (
               <Toggle

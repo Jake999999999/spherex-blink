@@ -81,6 +81,7 @@ export interface Meta {
   cube?: CubeDesc | null;
   /** S2: our own 6.15" 102-channel map from the single exposures */
   finecube?: (CubeDesc & { dtype?: string }) | null;
+  neowise?: { file: string | null; shape: [number, number, number]; frames: { band: "W1" | "W2"; wavelength_um: number; mjd: number; mjd_min: number; mjd_max: number; n: number }[]; missing: string | null; credit: string } | null;
   flags?: { file: string; shape: [number, number, number, number]; meaning: string; masked_bits: string[]; summary: Record<string, number>[][] } | null;
   colour_preset?: string;
   colour_hint?: string;
@@ -142,6 +143,7 @@ export interface Bundle {
   cube: Cube | null; // 102-channel all-sky map window (M5 bundles)
   finecube: Cube | null; // our 6.15" map (S2 bundles)
   flags: Uint8Array | null; // % of exposures flagged per pixel [E,6,H,W]; 255 = not covered
+  neowise: Float32Array | null; // NEOWISE yearly frames [N,H,W] (DN), 2014-2024
   width: number;
   height: number;
 }
@@ -166,7 +168,7 @@ export function parseBundle(
     throw new Error(`frames.bin is ${buf.byteLength} bytes, meta says ${meta.layout.bytes}`);
   }
   const [, , h, w] = meta.layout.frames.shape;
-  return { meta, data: new Float32Array(buf), gaia, spectra, cube, finecube, flags: null, width: w, height: h };
+  return { meta, data: new Float32Array(buf), gaia, spectra, cube, finecube, flags: null, neowise: null, width: w, height: h };
 }
 
 const isJson = (r: Response | null) => !!r && r.ok && (r.headers.get("content-type") ?? "").includes("json");
@@ -204,6 +206,13 @@ export async function loadBundle(id: string, fetchFn: typeof fetch = fetch, base
     if (isBinary(fl)) {
       const arr = new Uint8Array(await fl!.arrayBuffer());
       if (arr.length === meta.flags.shape.reduce((a, b) => a * b, 1)) bundle.flags = arr;
+    }
+  }
+  if (meta.neowise?.file) {
+    const nw = await fetchFn(`${base}/${meta.neowise.file}`).catch(() => null);
+    if (isBinary(nw)) {
+      const arr = float16ToFloat32(new Uint16Array(await nw!.arrayBuffer()));
+      if (arr.length === meta.neowise.shape.reduce((a, b) => a * b, 1)) bundle.neowise = arr;
     }
   }
   return bundle;
@@ -252,6 +261,11 @@ export function flagPlane(b: Bundle, epoch: number, detector: number): Uint8Arra
   const n = b.width * b.height;
   const start = (epoch * 6 + (detector - 1)) * n;
   return b.flags.subarray(start, start + n);
+}
+
+export function neowisePlane(b: Bundle, i: number): Float32Array {
+  const n = b.width * b.height;
+  return b.neowise!.subarray(i * n, (i + 1) * n);
 }
 
 export function wisePlane(b: Bundle, i: number): Float32Array {

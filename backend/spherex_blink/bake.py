@@ -19,6 +19,7 @@ import numpy as np
 
 from . import __version__, frames, gaia, irsa, photometry, wise
 from . import cube as cubemap
+from . import neowise as neowisemod
 from . import matched as matchedmod
 from .targets import TARGETS, Target
 
@@ -26,7 +27,7 @@ OUT_ROOT = Path(__file__).resolve().parents[2] / "frontend" / "public" / "benchm
 MIN_PER_CELL = 3
 WISE_YEAR = 2010.4
 NOW_YEAR = 2026.5
-MAX_BUNDLE_BYTES = 5 * 1024 * 1024
+MAX_BUNDLE_BYTES = 6 * 1024 * 1024
 
 
 TARGET_ORDER = ["barnard", "eps-ind-b", "wise-0855", "rw-aur", "r-dra", "nep-lpv"]
@@ -350,6 +351,16 @@ def bake_target(t: Target, client: httpx.Client | None = None, out_root: Path = 
             print(f"  ! no WISE frame: {err}", flush=True)
         field = gaia.cone(client, cra, cdec, t.fov_arcmin / 60.0 * 0.75, gmax=19.0)
 
+        # NEOWISE yearly frames (2014-2024), optional like the 2010 frame
+        neo_frames, neo_missing = [], None
+        try:
+            neo_frames = neowisemod.neowise_frames(client, cra, cdec, size_deg, grid, shape, per_visit=3 if t.per_cell and t.per_cell <= 4 else 6)
+            if not neo_frames:
+                neo_missing = "no NEOWISE exposures cover this position"
+        except (irsa.FetchError, httpx.HTTPError) as err:
+            neo_missing = f"NEOWISE search failed at bake time ({err})"
+            print(f"  ! no NEOWISE frames: {err}", flush=True)
+
         epoch_of = {}
         for ei, g in enumerate(groups):
             for i in g:
@@ -399,6 +410,10 @@ def bake_target(t: Target, client: httpx.Client | None = None, out_root: Path = 
         out = out_root / t.id
         out.mkdir(parents=True, exist_ok=True)
         (out / "flags.bin").write_bytes(flag_pct.tobytes())
+        if neo_frames:
+            (out / "neowise.bin").write_bytes(np.stack([f["image"] for f in neo_frames]).astype("<f2").tobytes())
+        elif (out / "neowise.bin").exists():
+            (out / "neowise.bin").unlink()
         fine16 = np.where(np.isfinite(mres.fine), mres.fine, np.nan).astype("<f2")
         (out / "finecube.bin").write_bytes(fine16.tobytes())
         fine_desc = {
@@ -463,6 +478,14 @@ def bake_target(t: Target, client: httpx.Client | None = None, out_root: Path = 
             "wise": [{k: v for k, v in w.items() if k != "image"} for w in wise_frames],
             "cube": cube_desc,
             "finecube": fine_desc,
+            "neowise": {
+                "file": "neowise.bin" if neo_frames else None,
+                "dtype": "float16",
+                "shape": [len(neo_frames), npix, npix],
+                "frames": [{k: v for k, v in f.items() if k != "image"} for f in neo_frames],
+                "missing": neo_missing,
+                "credit": "NEOWISE-R single-exposure images, NASA/JPL-Caltech/UCLA (IRSA)",
+            },
             "flags": {
                 "file": "flags.bin",
                 "dtype": "uint8",
