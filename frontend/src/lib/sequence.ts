@@ -74,8 +74,8 @@ export function allPlanes(b: Bundle): Float32Array[] {
   const planes: Float32Array[] = [];
   for (let e = 0; e < b.meta.epochs.length; e++) for (let d = 1; d <= 6; d++) planes.push(fillSaturated(framePlane(b, e, d), b.width, b.height));
   for (let i = 0; i < b.meta.wise.length; i++) planes.push(fillSaturated(wisePlane(b, i), b.width, b.height));
-  // S2 matched frames after the WISE ones (no saturated-core fill: these are differences)
-  if (b.meta.layout.matched) for (let e = 0; e < b.meta.epochs.length; e++) for (let d = 1; d <= 6; d++) planes.push(matchedPlane(b, e, d)!);
+  // S2 matched frames after the WISE ones (fill saturated star cores before A-B subtraction so cores don't turn black)
+  if (b.meta.layout.matched) for (let e = 0; e < b.meta.epochs.length; e++) for (let d = 1; d <= 6; d++) planes.push(fillSaturated(matchedPlane(b, e, d)!, b.width, b.height));
   if (b.neowise) for (let i = 0; i < (b.meta.neowise?.frames.length ?? 0); i++) planes.push(fillSaturated(neowisePlane(b, i), b.width, b.height));
   // a map-only field (built in the browser without exposures) has no frames: keep the texture non-empty
   if (!planes.length) planes.push(new Float32Array(b.width * b.height).fill(NaN));
