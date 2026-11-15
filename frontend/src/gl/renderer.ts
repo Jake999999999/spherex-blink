@@ -31,7 +31,7 @@ uniform int uLayerB;
 uniform float uBlack;
 uniform float uWhite;
 uniform float uLimit;
-uniform int uStretch;     // 0 = asinh, 1 = linear
+uniform int uStretch;     // 0 = asinh, 1 = linear, 2 = log
 uniform float uBeta;
 uniform float uMix;       // crossfade weight toward uLayerB in single mode (0 = hard cut)
 uniform vec3 uNoData;
@@ -45,7 +45,9 @@ out vec4 outColor;
 
 float stretch01(float x) {
   x = clamp(x, 0.0, 1.0);
-  return uStretch == 1 ? x : asinh(x * uBeta) / asinh(uBeta);
+  if (uStretch == 1) return x;
+  if (uStretch == 2) return log(1.0 + x * uBeta) / log(1.0 + uBeta);
+  return asinh(x * uBeta) / asinh(uBeta);
 }
 
 vec4 crWeights(float t) {
@@ -114,7 +116,9 @@ void main() {
       // Lupton et al. (2004): stretch the combined brightness, keep the colour ratios. Faint sky noise
       // stays dark and grey instead of becoming coloured speckles; stars keep their true colour.
       float I = (x.r + x.g + x.b) / 3.0;
-      float k = I > 1e-6 ? asinh(uBeta * I) / (asinh(uBeta) * I) : 0.0;
+      float k = I > 1e-6
+        ? (uStretch == 2 ? log(1.0 + uBeta * I) / (log(1.0 + uBeta) * I) : asinh(uBeta * I) / (asinh(uBeta) * I))
+        : 0.0;
       col = x * k;
       float m = max(col.r, max(col.g, col.b));
       if (m > 1.0) col /= m; // saturate brightness, not hue
@@ -127,7 +131,9 @@ void main() {
     float b = sampleLayer(uLayerB, vUv);
     if (a < -1e29 || b < -1e29) { outColor = vec4(uNoData, 1.0); return; }
     float x = clamp((a - b) / uLimit, -1.0, 1.0);
-    float y = uStretch == 1 ? x : sign(x) * asinh(abs(x) * uBeta) / asinh(uBeta);
+    float y = uStretch == 1 ? x
+      : uStretch == 2 ? sign(x) * log(1.0 + abs(x) * uBeta) / log(1.0 + uBeta)
+      : sign(x) * asinh(abs(x) * uBeta) / asinh(uBeta);
     col = texture(uDivLut, vec2(y * 0.5 + 0.5, 0.5)).rgb;
   } else {
     if (a < -1e29) { outColor = vec4(uNoData, 1.0); return; }
@@ -302,7 +308,7 @@ export class Renderer {
     gl.uniform1f(this.loc.uBlack, p.black);
     gl.uniform1f(this.loc.uWhite, p.white);
     gl.uniform1f(this.loc.uLimit, p.limit);
-    gl.uniform1i(this.loc.uStretch, p.stretch === "linear" ? 1 : 0);
+    gl.uniform1i(this.loc.uStretch, p.stretch === "linear" ? 1 : p.stretch === "log" ? 2 : 0);
     gl.uniform1f(this.loc.uBeta, ASINH_BETA);
     gl.uniform1f(this.loc.uMix, p.mix);
     gl.uniform3f(this.loc.uNoData, 0.06, 0.05, 0.09);

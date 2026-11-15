@@ -1,6 +1,6 @@
 // Display levels. The shader does the per-pixel mapping; these compute its uniforms and are unit-tested.
 
-export type StretchKind = "asinh" | "linear";
+export type StretchKind = "asinh" | "log" | "linear";
 export const ASINH_BETA = 12;
 
 /** Percentile (0..100) of the finite values, linear interpolation between order statistics. */
@@ -34,7 +34,9 @@ export function levelsFor(values: ArrayLike<number>, loPct: number, hiPct: numbe
 /** Same mapping as the fragment shader: value -> 0..1. */
 export function applyStretch(v: number, l: Levels, kind: StretchKind): number {
   const x = Math.min(1, Math.max(0, (v - l.black) / (l.white - l.black)));
-  return kind === "linear" ? x : Math.asinh(x * ASINH_BETA) / Math.asinh(ASINH_BETA);
+  if (kind === "linear") return x;
+  if (kind === "log") return Math.log(1 + x * ASINH_BETA) / Math.log(1 + ASINH_BETA);
+  return Math.asinh(x * ASINH_BETA) / Math.asinh(ASINH_BETA);
 }
 
 /** Symmetric limit for a difference image: the hiPct percentile of |d|. */
@@ -48,7 +50,9 @@ export function diffLimit(d: ArrayLike<number>, hiPct: number): number {
 /** Same mapping as the shader in difference mode: d -> -1..1. */
 export function applyDiff(d: number, limit: number, kind: StretchKind): number {
   const x = Math.min(1, Math.max(-1, d / limit));
-  return kind === "linear" ? x : Math.asinh(x * ASINH_BETA) / Math.asinh(ASINH_BETA);
+  if (kind === "linear") return x;
+  if (kind === "log") return Math.sign(x) * Math.log(1 + Math.abs(x) * ASINH_BETA) / Math.log(1 + ASINH_BETA);
+  return Math.asinh(x * ASINH_BETA) / Math.asinh(ASINH_BETA);
 }
 
 export function subtract(a: Float32Array, b: Float32Array): Float32Array {

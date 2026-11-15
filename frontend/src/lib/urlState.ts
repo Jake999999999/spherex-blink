@@ -64,7 +64,7 @@ export function parseState(search: string, base: ViewState = DEFAULT_STATE): Par
   const w = q.get("wise");
   if (w === "1" || w === "0") out.wise = w === "1";
   const s = q.get("stretch");
-  if (s === "asinh" || s === "linear") out.stretch = s;
+  if (s === "asinh" || s === "log" || s === "linear") out.stretch = s;
   void base;
   return out;
 }

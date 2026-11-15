@@ -1,6 +1,6 @@
 // Per-exposure photometry baked by backend bake.measure_spectra: spectra.json.
 import { mjdToYear, propagate } from "./astro";
-import type { GridWcs } from "./bundle";
+import type { ExposureInfo, GridWcs } from "./bundle";
 import { worldToPixel } from "./wcs";
 
 export interface SpectraSource {
@@ -81,6 +81,80 @@ export interface Point {
   flag: number;
   det: number;
   epoch: number;
+  obs_id?: string;
+  url?: string;
+}
+
+export type FluxUnit = "mjy" | "abmag" | "nufnu";
+
+export const FLUX_UNIT_LABELS: Record<FluxUnit, string> = {
+  mjy: "mJy",
+  abmag: "AB mag",
+  nufnu: "λF_λ (10⁻¹⁴ W m⁻²)",
+};
+
+/** Attach IRSA obs_id and FITS URL to each photometric point by matching detector and nearest MJD. */
+export function attachExposureMeta(pts: Point[], exposures?: ExposureInfo[]): Point[] {
+  if (!exposures?.length) return pts;
+  const byDet = new Map<number, ExposureInfo[]>();
+  for (const ex of exposures) {
+    if (ex.used === false) continue;
+    const list = byDet.get(ex.detector) ?? [];
+    list.push(ex);
+    byDet.set(ex.detector, list);
+  }
+  return pts.map((p) => {
+    const cands = byDet.get(p.det);
+    if (!cands?.length) return p;
+    let best: ExposureInfo | null = null;
+    let bestDt = 1e-4;
+    for (const c of cands) {
+      const dt = Math.abs(c.mjd - p.mjd);
+      if (dt < bestDt) {
+        bestDt = dt;
+        best = c;
+      }
+    }
+    return best ? { ...p, obs_id: best.obs_id, url: best.url } : p;
+  });
+}
+
+/**
+ * Convert a flux measurement (in mJy) to the requested display unit and flag < 3σ points as upper limits.
+ * In AB mag, upper limits correspond to the 3σ faintness floor (downward arrow = fainter than m_3σ).
+ */
+export function convertFlux(
+  fluxMjy: number,
+  errMjy: number,
+  wlUm: number,
+  unit: FluxUnit,
+): { value: number; err: number; upperLimit: boolean } | null {
+  const upperLimit = errMjy > 0 && fluxMjy < 3 * errMjy;
+  if (unit === "mjy") {
+    return {
+      value: upperLimit ? Math.max(0, fluxMjy) + 3 * errMjy : fluxMjy,
+      err: upperLimit ? 0 : errMjy,
+      upperLimit,
+    };
+  }
+  if (unit === "nufnu") {
+    if (!(wlUm > 0)) return null;
+    // νF_ν = λF_λ = (c / λ) F_ν; 1 mJy = 1e-29 W m^-2 Hz^-1, c/1um = 2.99792458e14 Hz -> 0.299792458e-14 W m^-2
+    const k = 0.299792458 / wlUm;
+    return {
+      value: (upperLimit ? Math.max(0, fluxMjy) + 3 * errMjy : fluxMjy) * k,
+      err: upperLimit ? 0 : errMjy * k,
+      upperLimit,
+    };
+  }
+  // AB mag: m_AB = 16.4 - 2.5 * log10(F_mJy) (since 3631 Jy = 3.631e6 mJy)
+  const ref = upperLimit ? 3 * errMjy : fluxMjy;
+  if (!(ref > 0)) return null;
+  return {
+    value: 16.4 - 2.5 * Math.log10(ref),
+    err: upperLimit ? 0 : (2.5 / Math.LN10) * (errMjy / fluxMjy),
+    upperLimit,
+  };
 }
 
 export function points(s: Spectra, src: SpectraSource, measure?: Measure): Point[] {
@@ -144,9 +218,9 @@ export function medianFlux(pts: Point[], wlMin: number, wlMax: number): number {
 }
 
 export function toCsv(src: SpectraSource, pts: Point[], measure: Measure = defaultMeasure(src)): string {
-  const rows = ["mjd,year,visit,detector,wavelength_um,bandwidth_um,flux_mJy,err_mJy,flag"];
+  const rows = ["mjd,year,visit,detector,wavelength_um,bandwidth_um,flux_mJy,err_mJy,flag,obs_id"];
   for (const p of pts) {
-    rows.push([p.mjd.toFixed(5), mjdToYear(p.mjd).toFixed(4), p.epoch + 1, p.det, p.wl, p.bw ?? "", p.flux, p.err, p.flag].join(","));
+    rows.push([p.mjd.toFixed(5), mjdToYear(p.mjd).toFixed(4), p.epoch + 1, p.det, p.wl, p.bw ?? "", p.flux, p.err, p.flag, p.obs_id ?? ""].join(","));
   }
   return `# ${src.name}; single SPHEREx exposures (IRSA DR1+QR3). ${MEASURE_NOTES[measure]}\n${rows.join("\n")}\n`;
 }

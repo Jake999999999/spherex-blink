@@ -4,8 +4,8 @@ import { buildEcsv, download as saveFile } from "../lib/fitsio";
 import { sendViaSamp } from "../lib/samp";
 import { mjdToYear as yearOf } from "../lib/astro";
 import { describeLightCurve, describeSpectrum, detrendByWavelength, playPlan, sonifyPlan, stopSound } from "../lib/sonify";
-import type { Epoch } from "../lib/bundle";
-import { defaultMeasure, FLAG_OK, MEASURE_NOTES, REFERENCE_BANDS, points, preferRing, toCsv, type Measure, type Point, type Spectra, type SpectraSource } from "../lib/spectra";
+import type { Epoch, ExposureInfo } from "../lib/bundle";
+import { attachExposureMeta, convertFlux, defaultMeasure, FLAG_OK, FLUX_UNIT_LABELS, MEASURE_NOTES, REFERENCE_BANDS, points, preferRing, toCsv, type FluxUnit, type Measure, type Point, type Spectra, type SpectraSource } from "../lib/spectra";
 import type { MapSpectrum, Mix } from "../lib/colour";
 import { formatMjdRange, mjdToDate, mjdToYear } from "../lib/astro";
 import { formatNumber, logTicks, niceTicks, robustRange } from "../lib/ticks";
@@ -47,22 +47,25 @@ interface Props {
   colourWindows?: Mix | null;
   /** Colour mode: why this source has the colour it has */
   colourNote?: string | null;
+  /** Optional exposure list from meta.json for obs_id & IRSA URL provenance */
+  exposures?: ExposureInfo[];
 }
 
-export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, band, tab, onTab, onClose, children, silent = false, colourWindows = null, colourNote = null }: Props) {
+export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, band, tab, onTab, onClose, children, silent = false, colourWindows = null, colourNote = null, exposures }: Props) {
   const firstMeasure = (): Measure => (spectra && source && preferRing(spectra, source) ? "ring" : source ? defaultMeasure(source) : "core");
   const [lcMeasure, setLcMeasure] = useState<Measure>(firstMeasure);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => setLcMeasure(firstMeasure()), [spectra, source]);
   // the spectrum never uses the ring (its share of the light changes with wavelength)
   const specMeasure: Measure = lcMeasure === "ring" ? (source ? defaultMeasure(source) : "core") : lcMeasure;
-  const pts = useMemo(() => (spectra && source ? points(spectra, source, specMeasure) : []), [spectra, source, specMeasure]);
+  const pts = useMemo(() => (spectra && source ? attachExposureMeta(points(spectra, source, specMeasure), exposures) : []), [spectra, source, specMeasure, exposures]);
   const nGood = pts.filter((p) => p.flag === FLAG_OK).length;
   const [lcBand, setLcBand] = useState(band);
   useEffect(() => setLcBand(band), [band]);
   const [logY, setLogY] = useState(false);
+  const [unit, setUnit] = useState<FluxUnit>("mjy");
   const hasRing = !!source?.wing_flux;
-  const lcPts = useMemo(() => (spectra && source ? points(spectra, source, lcMeasure) : []), [spectra, source, lcMeasure]);
+  const lcPts = useMemo(() => (spectra && source ? attachExposureMeta(points(spectra, source, lcMeasure), exposures) : []), [spectra, source, lcMeasure, exposures]);
   const tabs = source ? (["spectrum", "lightcurve", "table"] as const) : (["spectrum"] as const);
   const shownTab: PanelTab = source ? tab : "spectrum";
 
@@ -132,6 +135,7 @@ export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, 
             { name: "flux", datatype: "float64", unit: "mJy", description: MEASURE_NOTES[specMeasure], values: pts.map((p) => p.flux) },
             { name: "flux_err", datatype: "float64", unit: "mJy", values: pts.map((p) => p.err) },
             { name: "flag", datatype: "int32", description: "0 ok, 1 masked pixel in aperture, 2 saturated pixel in aperture", values: pts.map((p) => p.flag) },
+            { name: "obs_id", datatype: "string", description: "IRSA SPHEREx observation ID", values: pts.map((p) => p.obs_id ?? "") },
           ],
           {
             source: name,
@@ -250,6 +254,7 @@ export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, 
             epochs={epochs}
             detectors={detectors}
             logY={logY}
+            unit={unit}
             map={map?.spectrum ? { ...map.spectrum, label: map.label } : null}
             windows={colourWindows}
           />
@@ -263,9 +268,25 @@ export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, 
       {words && <p className="mt-1 text-xs text-slate-200">{words}</p>}
       <footer className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
         {shownTab === "spectrum" && (
-          <label className="flex items-center gap-1">
-            <input type="checkbox" checked={logY} onChange={(e) => setLogY(e.target.checked)} /> log flux
-          </label>
+          <>
+            <span className="flex items-center gap-1">
+              {(["mjy", "abmag", "nufnu"] as const).map((u) => (
+                <button
+                  key={u}
+                  onClick={() => setUnit(u)}
+                  aria-pressed={unit === u}
+                  className={`rounded border px-1.5 ${unit === u ? "border-sky-400 text-sky-200" : "border-sky-400/20 text-slate-400"}`}
+                >
+                  {u === "mjy" ? "mJy" : u === "abmag" ? "AB mag" : "λF_λ"}
+                </button>
+              ))}
+            </span>
+            {unit !== "abmag" && (
+              <label className="flex items-center gap-1">
+                <input type="checkbox" checked={logY} onChange={(e) => setLogY(e.target.checked)} /> log flux
+              </label>
+            )}
+          </>
         )}
         {source && (hasRing || source.psf_flux) && (
           <span className="flex items-center gap-1" title={spectra?.wing_note}>
@@ -343,13 +364,14 @@ function Tooltip({ h, w, color }: { h: Hover; w: number; color: string }) {
         {formatNumber(h.p.flux)} ± {formatNumber(h.p.err)} mJy
       </div>
       <div className="mono text-slate-400">{mjdToDate(h.p.mjd).toISOString().slice(0, 10)} · MJD {h.p.mjd.toFixed(2)}</div>
+      {h.p.obs_id && <div className="mono truncate text-slate-400">{h.p.obs_id}</div>}
       {h.p.flag !== FLAG_OK && <div className="mt-1 text-amber-300">{h.p.flag === 2 ? "Saturated pixel in aperture" : "Masked pixel in aperture"}</div>}
     </div>
   );
 }
 
-function nearest(pts: Point[], sx: (p: Point) => number, sy: (p: Point) => number, mx: number, my: number, max = 14): Point | null {
-  let best: Point | null = null;
+function nearest<T>(pts: T[], sx: (p: T) => number, sy: (p: T) => number, mx: number, my: number, max = 14): T | null {
+  let best: T | null = null;
   let bd = max;
   for (const p of pts) {
     const d = Math.hypot(sx(p) - mx, sy(p) - my);
@@ -372,6 +394,7 @@ function SpectrumChart({
   epochs,
   detectors,
   logY,
+  unit,
   map,
   windows = null,
 }: {
@@ -379,17 +402,36 @@ function SpectrumChart({
   epochs: Epoch[];
   detectors: Props["detectors"];
   logY: boolean;
+  unit: FluxUnit;
   map: (MapSpectrum & { label: string }) | null;
   windows?: Mix | null;
 }) {
   const [ref, { w, h }] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<Hover | null>(null);
   const nV = epochs.length;
-  const good = pts.filter((p) => p.flag === FLAG_OK);
-  const mapVals = (map?.flux ?? []).filter((v): v is number => v !== null && Number.isFinite(v));
-  const yVals = (good.length >= 5 ? good : pts).map((p) => p.flux).concat(mapVals);
+  const converted = useMemo(
+    () =>
+      pts.flatMap((p) => {
+        const c = convertFlux(p.flux, p.err, p.wl, unit);
+        return c ? [{ p, ...c }] : [];
+      }),
+    [pts, unit],
+  );
+  const good = converted.filter((d) => d.p.flag === FLAG_OK);
+  const mapConv = useMemo(
+    () =>
+      map
+        ? {
+            ...map,
+            flux: map.flux.map((v, i) => (v === null ? null : (convertFlux(v, 0, map.wl[i], unit)?.value ?? null))),
+          }
+        : null,
+    [map, unit],
+  );
+  const mapVals = (mapConv?.flux ?? []).filter((v): v is number => v !== null && Number.isFinite(v));
+  const yVals = (good.length >= 5 ? good : converted).map((d) => d.value).concat(mapVals);
   let [y0, y1] = robustRange(yVals);
-  if (logY) {
+  if (logY && unit !== "abmag") {
     const pos = yVals.filter((v) => v > 0).sort((a, b) => a - b);
     y0 = pos.length ? pos[0] * 0.7 : 0.01;
     y1 = pos.length ? pos[pos.length - 1] * 1.4 : 1;
@@ -400,6 +442,10 @@ function SpectrumChart({
   const ih = h - M.t - M.b;
   const sx = (wl: number) => M.l + ((wl - x0) / (x1 - x0)) * iw;
   const sy = (v: number) => {
+    if (unit === "abmag") {
+      // Astronomer convention: brighter (smaller mag) at the top.
+      return M.t + ((v - y0) / (y1 - y0)) * ih;
+    }
     if (logY) {
       const t = (Math.log10(Math.max(v, y0)) - Math.log10(y0)) / (Math.log10(y1) - Math.log10(y0));
       return M.t + (1 - t) * ih;
@@ -407,14 +453,14 @@ function SpectrumChart({
     return M.t + (1 - (v - y0) / (y1 - y0)) * ih;
   };
   const clampY = (v: number) => Math.min(M.t + ih, Math.max(M.t, sy(v)));
-  const yt = logY ? logTicks(y0, y1) : niceTicks(y0, y1, 5);
+  const yt = logY && unit !== "abmag" ? logTicks(y0, y1) : niceTicks(y0, y1, 5);
   const visits = [...new Set(pts.map((p) => p.epoch))].filter((e) => e >= 0).sort((a, b) => a - b);
 
   // direct labels: each visit at its longest-wavelength unflagged point
   const labels = nV <= 4
     ? visits.map((e) => {
-        const vp = pts.filter((p) => p.epoch === e && p.flag === FLAG_OK).sort((a, b) => b.wl - a.wl)[0];
-        return vp ? { e, x: sx(vp.wl), y: clampY(vp.flux) } : null;
+        const vp = converted.filter((d) => d.p.epoch === e && d.p.flag === FLAG_OK).sort((a, b) => b.p.wl - a.p.wl)[0];
+        return vp ? { e, x: sx(vp.p.wl), y: clampY(vp.value) } : null;
       }).filter((l): l is { e: number; x: number; y: number } => !!l)
     : [];
   // keep labels apart vertically
@@ -428,7 +474,7 @@ function SpectrumChart({
         items={visits
           .map((e) => ({ color: visitColor(e, nV), label: `V${e + 1} ${formatMjdRange(epochs[e].mjd_min, epochs[e].mjd_max)}` }))
           .concat(map ? [{ color: MAP_COLOUR, label: map.label }] : [])}
-        extra={pts.length ? "hollow = flagged" : undefined}
+        extra={pts.length ? (converted.some((d) => d.upperLimit) ? "hollow = flagged · ▼ = 3σ limit" : "hollow = flagged") : undefined}
       />
       <div ref={ref} className="relative min-h-0 flex-1" onPointerLeave={() => setHover(null)}>
         <svg
@@ -438,8 +484,8 @@ function SpectrumChart({
           aria-label="Flux against wavelength for each SPHEREx exposure"
           onPointerMove={(ev) => {
             const r = (ev.currentTarget as SVGSVGElement).getBoundingClientRect();
-            const p = nearest(pts, (q) => sx(q.wl), (q) => clampY(q.flux), ev.clientX - r.left, ev.clientY - r.top);
-            setHover(p ? { p, sx: sx(p.wl), sy: clampY(p.flux) } : null);
+            const d = nearest(converted, (q) => sx(q.p.wl), (q) => clampY(q.value), ev.clientX - r.left, ev.clientY - r.top);
+            setHover(d ? { p: d.p, sx: sx(d.p.wl), sy: clampY(d.value) } : null);
           }}
         >
           {detectors.map((d, i) => (
@@ -490,29 +536,42 @@ function SpectrumChart({
             wavelength (µm)
           </text>
           <text transform={`translate(11 ${M.t + ih / 2}) rotate(-90)`} textAnchor="middle" className="fill-slate-400 text-[10px]">
-            flux (mJy)
+            {FLUX_UNIT_LABELS[unit]}
           </text>
-          {map && (
+          {mapConv && (
             <path
-              d={mapPath(map, sx, clampY)}
+              d={mapPath(mapConv, sx, clampY)}
               fill="none"
               stroke={MAP_COLOUR}
               strokeOpacity={0.75}
               strokeWidth={2}
               strokeLinejoin="round"
-              aria-label={map.label}
+              aria-label={mapConv.label}
             />
           )}
           <g>
-            {pts.map((p) => {
+            {converted.map(({ p, value, err, upperLimit }) => {
               const c = visitColor(p.epoch, nV);
-              const y = clampY(p.flux);
-              const e1 = clampY(p.flux - p.err);
-              const e2 = clampY(p.flux + p.err);
+              const x = sx(p.wl);
+              const y = clampY(value);
+              if (upperLimit) {
+                // 3σ upper-limit downward triangle
+                return (
+                  <polygon
+                    key={p.i}
+                    points={`${x - 4},${y - 3} ${x + 4},${y - 3} ${x},${y + 4}`}
+                    fill={p.flag === FLAG_OK ? c : "none"}
+                    stroke={c}
+                    strokeWidth={1.2}
+                  />
+                );
+              }
+              const e1 = clampY(value - err);
+              const e2 = clampY(value + err);
               return (
                 <g key={p.i}>
-                  {e1 - e2 > 3 && <line x1={sx(p.wl)} x2={sx(p.wl)} y1={e1} y2={e2} stroke={c} strokeOpacity={0.5} />}
-                  <circle cx={sx(p.wl)} cy={y} r={4} fill={p.flag === FLAG_OK ? c : "none"} stroke={p.flag === FLAG_OK ? "#0b1019" : c} strokeWidth={p.flag === FLAG_OK ? 1 : 1.5} />
+                  {Math.abs(e1 - e2) > 3 && <line x1={x} x2={x} y1={e1} y2={e2} stroke={c} strokeOpacity={0.5} />}
+                  <circle cx={x} cy={y} r={4} fill={p.flag === FLAG_OK ? c : "none"} stroke={p.flag === FLAG_OK ? "#0b1019" : c} strokeWidth={p.flag === FLAG_OK ? 1 : 1.5} />
                 </g>
               );
             })}
@@ -623,6 +682,7 @@ function PointTable({ pts }: { pts: Point[] }) {
             <th className="px-2 text-right">flux mJy</th>
             <th className="px-2 text-right">± mJy</th>
             <th className="px-2">flag</th>
+            <th className="px-2">obs_id</th>
           </tr>
         </thead>
         <tbody>
@@ -637,6 +697,19 @@ function PointTable({ pts }: { pts: Point[] }) {
                 <td className="px-2 text-right">{formatNumber(p.flux)}</td>
                 <td className="px-2 text-right">{formatNumber(p.err)}</td>
                 <td className="px-2 text-amber-300">{p.flag === 2 ? "saturated" : p.flag === 1 ? "masked" : ""}</td>
+                <td className="px-2 text-slate-400">
+                  {p.obs_id ? (
+                    p.url ? (
+                      <a href={p.url} target="_blank" rel="noreferrer" className="hover:text-sky-300 hover:underline">
+                        {p.obs_id}
+                      </a>
+                    ) : (
+                      p.obs_id
+                    )
+                  ) : (
+                    "—"
+                  )}
+                </td>
               </tr>
             ))}
         </tbody>

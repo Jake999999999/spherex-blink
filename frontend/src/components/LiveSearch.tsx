@@ -4,6 +4,7 @@ import { looksLikeCoords, parseCoords } from "../lib/coords";
 import { cancelJob, claimAutostart, FORCE_BROWSER, jobStatus, liveAvailable, resolveName, startField, type JobView } from "../lib/live";
 import { formatDec, formatRa } from "../lib/wcs";
 import { BrowserFetch } from "./BrowserFetch";
+import { TargetListStepper } from "./TargetListStepper";
 
 export interface LiveResult {
   id: string;
@@ -141,9 +142,17 @@ export function LiveSearch({ onReady, autostart }: Props) {
             <X size={13} /> Stop
           </button>
         ) : (
-          <button type="submit" disabled={available === null} className="rounded-md bg-sky-400 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-sky-300 disabled:opacity-40">
-            Fetch from NASA
-          </button>
+          <>
+            <TargetListStepper
+              disabled={available === null}
+              onSelect={(q) => {
+                setText(q);
+              }}
+            />
+            <button type="submit" disabled={available === null} className="rounded-md bg-sky-400 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-sky-300 disabled:opacity-40">
+              Fetch from NASA
+            </button>
+          </>
         )}
       </form>
       {(busy || job || err) && (

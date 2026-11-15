@@ -951,6 +951,7 @@ export default function App() {
                 silent={SILENT}
                 epochs={m.epochs}
                 detectors={m.detectors}
+                exposures={m.exposures}
                 band={state.band}
                 tab={tab}
                 onTab={setTab}
@@ -1138,10 +1139,10 @@ export default function App() {
               <ChevronRight size={14} className="transition group-open:rotate-90" /> Image settings
             </summary>
             <div className="mt-3 space-y-3">
-              <div className="grid grid-cols-2 gap-1 rounded-lg bg-white/[0.04] p-1 text-xs">
-                {(["asinh", "linear"] as const).map((s) => (
+              <div className="grid grid-cols-3 gap-1 rounded-lg bg-white/[0.04] p-1 text-xs">
+                {(["asinh", "log", "linear"] as const).map((s) => (
                   <button key={s} onClick={() => set({ stretch: s })} className={`rounded-md py-1.5 ${state.stretch === s ? "bg-white/10 text-white" : "text-slate-400"}`}>
-                    {s === "asinh" ? "Bring out faint stars" : "Linear"}
+                    {s === "asinh" ? "Asinh (faint)" : s === "log" ? "Log" : "Linear"}
                   </button>
                 ))}
               </div>
