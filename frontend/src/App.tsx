@@ -474,6 +474,7 @@ export default function App() {
   const onPick = useCallback(
     (x: number, y: number) => {
       if (!bundle) return;
+      if (x < -0.5 || x > bundle.width - 0.5 || y < -0.5 || y > bundle.height - 0.5) return;
       if (state.mode === "colour" && bundle.cube) {
         // any point: nearest baked star if there is one, else a map spectrum of that spot
         const mjd = cubeMid ?? bundle.meta.epochs[0].mjd;
