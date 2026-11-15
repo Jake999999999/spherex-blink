@@ -242,6 +242,20 @@ export function BrowserFetch({ onReady, autostart }: Props) {
           </>
         )}
       </form>
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
+        <span>Try:</span>
+        {["Teegarden's Star", "NGC 1333", "Orion Nebula", "Vega"].map((q) => (
+          <button
+            key={q}
+            type="button"
+            disabled={busy}
+            onClick={() => setText(q)}
+            className="rounded border border-white/10 bg-white/[0.03] px-2 py-0.5 text-slate-300 hover:border-sky-400/40 hover:text-sky-200 disabled:opacity-40"
+          >
+            {q}
+          </button>
+        ))}
+      </div>
 
       <p className="mt-1.5 text-[11px] text-slate-400">
         Runs in this browser, straight from NASA's public copy of SPHEREx on Amazon S3 (no server needed). The 102-colour map comes first, in seconds. Someone

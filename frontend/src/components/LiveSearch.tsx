@@ -188,6 +188,20 @@ export function LiveSearch({ onReady, autostart, sourceMode = "auto", serverOnli
           </>
         )}
       </form>
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
+        <span>Try:</span>
+        {["Teegarden's Star", "NGC 1333", "Orion Nebula", "Vega"].map((q) => (
+          <button
+            key={q}
+            type="button"
+            disabled={busy || available === null}
+            onClick={() => setText(q)}
+            className="rounded border border-white/10 bg-white/[0.03] px-2 py-0.5 text-slate-300 hover:border-sky-400/40 hover:text-sky-200 disabled:opacity-40"
+          >
+            {q}
+          </button>
+        ))}
+      </div>
       {(busy || job || err) && (
         <p className="mt-1.5 flex items-center gap-2 text-xs text-slate-300" aria-live="polite">
           {busy && <Loader2 size={13} className="animate-spin text-sky-300" />}

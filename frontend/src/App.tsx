@@ -328,6 +328,16 @@ export default function App() {
   }, [advance]);
 
   const set = useCallback((patch: Partial<ViewState>) => setState((s) => ({ ...s, ...patch })), []);
+  useEffect(() => {
+    if (bandEpochs.length < 2) return;
+    const t1Ok = bandEpochs.includes(state.t1);
+    const t2Ok = bandEpochs.includes(state.t2);
+    if (t1Ok && t2Ok && state.t1 !== state.t2) return;
+    const nextT1 = t1Ok ? state.t1 : bandEpochs[0];
+    let nextT2 = t2Ok ? state.t2 : bandEpochs[bandEpochs.length - 1];
+    if (nextT1 === nextT2) nextT2 = bandEpochs.find((e) => e !== nextT1) ?? nextT2;
+    set({ t1: nextT1, t2: nextT2 });
+  }, [bandEpochs, state.t1, state.t2, set]);
 
   const onLiveReady = useCallback(
     (r: LiveResult) => {
@@ -971,7 +981,7 @@ export default function App() {
           </div>
 
           {((selected && bundle.spectra) || (isColour && mapPoint)) && (
-            <div data-tour="spectrum" className="mx-4 mb-3 mt-2 h-[44%] min-h-[280px] shrink-0 overflow-hidden rounded-xl border border-white/10">
+            <div data-tour="spectrum" className="mx-4 mb-3 mt-2 h-[46%] min-h-[340px] shrink-0 overflow-hidden rounded-xl border border-white/10">
               <SpectrumPanel
                 spectra={bundle.spectra}
                 source={selected}

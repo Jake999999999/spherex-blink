@@ -336,7 +336,7 @@ function useWidth<T extends HTMLElement>() {
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth || 600, h: Math.max(180, el.clientHeight || 260) }));
+    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth || 600, h: Math.max(120, el.clientHeight || 220) }));
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
