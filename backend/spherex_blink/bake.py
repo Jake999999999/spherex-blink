@@ -17,7 +17,8 @@ from pathlib import Path
 import httpx
 import numpy as np
 
-from . import __version__, cube, frames, gaia, irsa, photometry, wise
+from . import __version__, frames, gaia, irsa, photometry, wise
+from . import cube as cubemap
 from .targets import TARGETS, Target
 
 OUT_ROOT = Path(__file__).resolve().parents[2] / "frontend" / "public" / "benchmarks"
@@ -286,7 +287,7 @@ def bake(target_id: str, client: httpx.Client | None = None, out_root: Path = OU
 
         cube_arr, cube_desc = None, None
         try:
-            cube_arr, cube_desc = cube.bake_cube(client, cra, cdec, t.fov_arcmin)
+            cube_arr, cube_desc = cubemap.bake_cube(client, cra, cdec, t.fov_arcmin)
         except (irsa.FetchError, httpx.HTTPError, ValueError, KeyError) as err:
             # Colour is optional: bake without it and say why.
             print(f"  ! no colour cube: {err}", flush=True)

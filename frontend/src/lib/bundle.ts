@@ -1,5 +1,6 @@
 // Baked target bundles: public/benchmarks/<id>/{meta.json, frames.bin, gaia.json, spectra.json}. See backend/spherex_blink/bake.py.
 import type { Spectra } from "./spectra";
+import { parseCube, type Cube, type CubeDesc } from "./colour";
 
 export interface GridWcs {
   ctype: [string, string];
@@ -77,6 +78,8 @@ export interface Meta {
   detectors: { detector: number; wl_min: number; wl_max: number }[];
   epochs: Epoch[];
   wise: WiseFrame[];
+  cube?: CubeDesc | null;
+  variable?: boolean;
   layout: {
     dtype: "float32";
     frames: { offset: number; shape: [number, number, number, number] };
@@ -125,6 +128,7 @@ export interface Bundle {
   data: Float32Array; // whole frames.bin
   gaia: { ref_year: number; stars: GaiaStar[] };
   spectra: Spectra | null; // per-exposure photometry (M2 bundles)
+  cube: Cube | null; // 102-channel all-sky map window (M5 bundles)
   width: number;
   height: number;
 }
@@ -137,13 +141,17 @@ export async function loadIndex(fetchFn: typeof fetch = fetch): Promise<IndexEnt
   return (await r.json()).targets as IndexEntry[];
 }
 
-export function parseBundle(meta: Meta, buf: ArrayBuffer, gaia: Bundle["gaia"], spectra: Spectra | null = null): Bundle {
+export function parseBundle(meta: Meta, buf: ArrayBuffer, gaia: Bundle["gaia"], spectra: Spectra | null = null, cube: Cube | null = null): Bundle {
   if (buf.byteLength !== meta.layout.bytes) {
     throw new Error(`frames.bin is ${buf.byteLength} bytes, meta says ${meta.layout.bytes}`);
   }
   const [, , h, w] = meta.layout.frames.shape;
-  return { meta, data: new Float32Array(buf), gaia, spectra, width: w, height: h };
+  return { meta, data: new Float32Array(buf), gaia, spectra, cube, width: w, height: h };
 }
+
+const isJson = (r: Response | null) => !!r && r.ok && (r.headers.get("content-type") ?? "").includes("json");
+// Vite's dev server answers a missing file with index.html (200, text/html), so check the type.
+const isBinary = (r: Response | null) => !!r && r.ok && !(r.headers.get("content-type") ?? "").includes("html");
 
 export async function loadBundle(id: string, fetchFn: typeof fetch = fetch): Promise<Bundle> {
   const base = `${BENCH_ROOT}/${id}`;
@@ -154,9 +162,14 @@ export async function loadBundle(id: string, fetchFn: typeof fetch = fetch): Pro
     fetchFn(`${base}/spectra.json`).catch(() => null),
   ]);
   for (const r of [m, b, g]) if (!r.ok) throw new Error(`${r.url}: HTTP ${r.status}`);
-  // Vite's dev server answers missing files with index.html, so check the type too.
-  const spectra = s && s.ok && (s.headers.get("content-type") ?? "").includes("json") ? ((await s.json()) as Spectra) : null;
-  return parseBundle(await m.json(), await b.arrayBuffer(), await g.json(), spectra);
+  const meta = (await m.json()) as Meta;
+  const spectra = isJson(s) ? ((await s!.json()) as Spectra) : null;
+  let cube: Cube | null = null;
+  if (meta.cube?.file) {
+    const c = await fetchFn(`${base}/${meta.cube.file}`).catch(() => null);
+    if (isBinary(c)) cube = parseCube(meta.cube, await c!.arrayBuffer());
+  }
+  return parseBundle(meta, await b.arrayBuffer(), await g.json(), spectra, cube);
 }
 
 const planeSize = (b: Bundle) => b.width * b.height;

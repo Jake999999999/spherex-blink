@@ -39,6 +39,10 @@ interface Props {
   selected?: MovingSource | null;
   /** measured positions to mark (data pixels) */
   marks?: { x: number; y: number; label: string }[];
+  /** colour mode: three planes on the cube grid */
+  colour?: { planes: [Float32Array, Float32Array, Float32Array]; n: number } | null;
+  /** date for the overlays when no frame/difference is shown (colour mode) */
+  overlayMjd?: number;
 }
 
 export interface MovingSource {
@@ -57,7 +61,7 @@ export interface HoverInfo {
   value: number | null;
 }
 
-export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, onHover, valueAt, onPick, selected, marks }: Props) {
+export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, onHover, valueAt, onPick, selected, marks, colour, overlayMjd }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const glRef = useRef<HTMLCanvasElement>(null);
   const ovRef = useRef<HTMLCanvasElement>(null);
@@ -120,8 +124,20 @@ export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, o
     r.resize(W, H, dpr);
     const v = viewRef.current;
     r.draw({ ...draw, zoom: v.zoom, centerX: v.cx, centerY: v.cy });
-    drawOverlay(ov, W, H, dpr, v, bundle, step, diffMjds, showGaia, selected ?? null, marks ?? []);
-  }, [draw, bundle, step, diffMjds, showGaia, selected, marks]);
+    drawOverlay(ov, W, H, dpr, v, bundle, step, diffMjds, showGaia, selected ?? null, marks ?? [], overlayMjd);
+  }, [draw, bundle, step, diffMjds, showGaia, selected, marks, overlayMjd]);
+
+  // colour planes change only when the mix changes
+  const uploadedColour = useRef<{ colour: unknown; r: Renderer } | null>(null);
+  useEffect(() => {
+    const r = rendererRef.current;
+    if (!r || !colour) return;
+    const u = uploadedColour.current;
+    if (u && u.colour === colour && u.r === r) return; // also re-upload if the renderer was rebuilt
+    r.uploadColour(colour.planes, colour.n);
+    uploadedColour.current = { colour, r };
+    paint();
+  });
 
   useEffect(() => {
     paint();
@@ -224,6 +240,7 @@ function drawOverlay(
   showGaia: boolean,
   selected: MovingSource | null,
   marks: { x: number; y: number; label: string }[],
+  overlayMjd?: number,
 ) {
   const w = Math.round(W * dpr);
   const h = Math.round(H * dpr);
@@ -246,7 +263,7 @@ function drawOverlay(
   ctx.lineWidth = 1;
   ctx.strokeRect(x0, y1, x1 - x0, y0 - y1);
 
-  const years = diffMjds ? diffMjds.map(mjdToYear) : step ? [mjdToYear(step.mjd)] : [];
+  const years = diffMjds ? diffMjds.map(mjdToYear) : step ? [mjdToYear(step.mjd)] : overlayMjd !== undefined ? [mjdToYear(overlayMjd)] : [];
 
   if (showGaia && years.length) {
     const yr = years[years.length - 1];

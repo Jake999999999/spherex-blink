@@ -169,7 +169,7 @@ Owner's order: **M5 colour and M6 validation + accessibility are built next; M7 
 
 The plan was reviewed before building. Applied:
 - **M5, map spectra in the same units:** sum a 15″-radius aperture on the cube grid times the pixel solid angle → mJy, so map and exposure spectra share an axis.
-- **M5, time-averaging:** each cube channel at a spot was observed on a different date. Map spectra are suppressed for sources that move > 0.25 cube px over the averaging span and for the variable targets (the pole LPV, RW Aur), with a note saying why.
+- **M5, time-averaging:** each cube channel at a spot was observed on a different date. Map spectra are suppressed for sources that stray more than a quarter of the 15.4″ aperture radius from their mid-span position (Barnard: yes, 5.5″; Eps Indi B: no, 2.4″) and for the variable targets (the pole LPV, RW Aur), with a note saying why.
 - **M5, masking:** cube pixels with `NHITS == 0` become NaN. The level-2 flag mask is **not** reused on cube `FLAGS` (bit meanings unchecked; bit 21 SOURCE covers most pixels there too). The reader asserts plain `XTENSION='IMAGE'` and no `ZIMAGE` (tile compression would break byte offsets).
 - **M5, tiles:** found with our own HEALPix `ang2pix` (nested, order 5) on the field's corners and centre (up to 4 tiles at a corner), not SIA. This also tests fact L4 and is the code M7 will port to TypeScript. No new dependency.
 - **M5, colour honesty:** the "brown dwarfs look different" check is done in *physical* mode (one scale, Fν).

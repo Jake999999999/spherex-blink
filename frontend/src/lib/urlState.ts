@@ -1,7 +1,7 @@
 // Shareable view state in the query string. `silent` is read but never written back.
 import type { StretchKind } from "./stretch";
 
-export type Mode = "blink" | "diff";
+export type Mode = "blink" | "diff" | "colour";
 
 export interface ViewState {
   target: string;
@@ -35,7 +35,7 @@ export function parseState(search: string, base: ViewState = DEFAULT_STATE): Par
   const t = q.get("target");
   if (t && /^[a-z0-9-]{1,40}$/.test(t)) out.target = t;
   const m = q.get("mode");
-  if (m === "blink" || m === "diff") out.mode = m;
+  if (m === "blink" || m === "diff" || m === "colour") out.mode = m;
   const b = int(q.get("band"), 1, 6);
   if (b !== undefined) out.band = b;
   const t1 = int(q.get("t1"), 0, 99);

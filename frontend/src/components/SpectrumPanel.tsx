@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, X } from "lucide-react";
 import type { Epoch } from "../lib/bundle";
 import { FLAG_OK, REFERENCE_BANDS, points, preferRing, toCsv, type Measure, type Point, type Spectra, type SpectraSource } from "../lib/spectra";
+import type { MapSpectrum } from "../lib/colour";
 import { formatMjdRange, mjdToDate, mjdToYear } from "../lib/astro";
 import { formatNumber, logTicks, niceTicks, robustRange } from "../lib/ticks";
 
@@ -17,9 +18,18 @@ const rampAt = (t: number) => BLUE_RAMP[Math.round(Math.min(1, Math.max(0, t)) *
 
 export type PanelTab = "spectrum" | "lightcurve" | "table";
 
+export interface MapOverlay {
+  spectrum: MapSpectrum | null; // null when suppressed
+  caveat: string | null;
+  label: string;
+}
+
 interface Props {
-  spectra: Spectra;
-  source: SpectraSource;
+  spectra: Spectra | null;
+  /** a baked source with per-exposure measurements, or null for "any point on the map" */
+  source: SpectraSource | null;
+  title?: string;
+  map?: MapOverlay | null;
   epochs: Epoch[];
   detectors: { detector: number; wl_min: number; wl_max: number }[];
   band: number;
@@ -29,22 +39,31 @@ interface Props {
   children?: React.ReactNode; // extra tools (motion fit)
 }
 
-export function SpectrumPanel({ spectra, source, epochs, detectors, band, tab, onTab, onClose, children }: Props) {
-  const pts = useMemo(() => points(spectra, source), [spectra, source]);
+export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, band, tab, onTab, onClose, children }: Props) {
+  const pts = useMemo(() => (spectra && source ? points(spectra, source) : []), [spectra, source]);
   const nGood = pts.filter((p) => p.flag === FLAG_OK).length;
   const [lcBand, setLcBand] = useState(band);
   useEffect(() => setLcBand(band), [band]);
   const [logY, setLogY] = useState(false);
-  const hasRing = !!source.wing_flux;
-  const [lcMeasure, setLcMeasure] = useState<Measure>(() => (preferRing(spectra, source) ? "ring" : "core"));
-  useEffect(() => setLcMeasure(preferRing(spectra, source) ? "ring" : "core"), [spectra, source]);
-  const lcPts = useMemo(() => points(spectra, source, lcMeasure), [spectra, source, lcMeasure]);
+  const hasRing = !!source?.wing_flux;
+  const ringFirst = () => !!(spectra && source && preferRing(spectra, source));
+  const [lcMeasure, setLcMeasure] = useState<Measure>(() => (ringFirst() ? "ring" : "core"));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => setLcMeasure(ringFirst() ? "ring" : "core"), [spectra, source]);
+  const lcPts = useMemo(() => (spectra && source ? points(spectra, source, lcMeasure) : []), [spectra, source, lcMeasure]);
+  const tabs = source ? (["spectrum", "lightcurve", "table"] as const) : (["spectrum"] as const);
+  const shownTab: PanelTab = source ? tab : "spectrum";
 
   const download = () => {
-    const blob = new Blob([toCsv(source, pts)], { type: "text/csv" });
+    const csv = source
+      ? toCsv(source, pts)
+      : `# ${title}; SPHEREx all-sky map spectrum, 15.4" aperture, local sky removed\nwavelength_um,flux_mJy\n${(map?.spectrum?.wl ?? [])
+          .map((w, i) => `${w},${map?.spectrum?.flux[i] ?? ""}`)
+          .join("\n")}\n`;
+    const blob = new Blob([csv], { type: "text/csv" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `${source.id}-spherex-photometry.csv`;
+    a.download = `${source?.id ?? "map-point"}-spherex.csv`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
@@ -53,19 +72,21 @@ export function SpectrumPanel({ spectra, source, epochs, detectors, band, tab, o
     <section className="panel flex h-full flex-col rounded-t p-3 text-sm" aria-label="Spectrum and light curve">
       <header className="mb-2 flex flex-wrap items-center gap-2">
         <div className="min-w-0 flex-1">
-          <h2 className="truncate font-semibold text-slate-100">{source.name}</h2>
+          <h2 className="truncate font-semibold text-slate-100">{source?.name ?? title}</h2>
           <p className="text-xs text-slate-400">
-            {pts.length} single-exposure measurements · {nGood} unflagged{source.g !== null ? ` · Gaia G = ${source.g.toFixed(1)}` : ""}
+            {source
+              ? `${pts.length} single-exposure measurements · ${nGood} unflagged${source.g !== null ? ` · Gaia G = ${source.g.toFixed(1)}` : ""}`
+              : "Any point on the map: its spectrum from SPHEREx's all-sky map"}
           </p>
         </div>
         <div className="flex gap-1 rounded border border-sky-400/20 p-0.5" role="tablist">
-          {(["spectrum", "lightcurve", "table"] as const).map((t) => (
+          {tabs.map((t) => (
             <button
               key={t}
               role="tab"
-              aria-selected={tab === t}
+              aria-selected={shownTab === t}
               onClick={() => onTab(t)}
-              className={`rounded px-2 py-0.5 text-xs ${tab === t ? "bg-sky-400/20 text-sky-100" : "text-slate-400 hover:text-slate-200"}`}
+              className={`rounded px-2 py-0.5 text-xs ${shownTab === t ? "bg-sky-400/20 text-sky-100" : "text-slate-400 hover:text-slate-200"}`}
             >
               {t === "spectrum" ? "Spectrum" : t === "lightcurve" ? "Light curve" : "Table"}
             </button>
@@ -79,31 +100,32 @@ export function SpectrumPanel({ spectra, source, epochs, detectors, band, tab, o
         </button>
       </header>
       {children}
-      {pts.length > 0 && nGood < pts.length * 0.2 && !(tab === "lightcurve" && lcMeasure === "ring") && (
+      {pts.length > 0 && nGood < pts.length * 0.2 && !(shownTab === "lightcurve" && lcMeasure === "ring") && (
         <p className="mb-1 text-[11px] text-amber-300">
           Most measurements touch saturated or masked pixels (hollow dots): this star is too bright for SPHEREx at most wavelengths, so the
           shape and level are not reliable. Field stars and fainter targets give clean spectra.
         </p>
       )}
+      {shownTab === "spectrum" && map?.caveat && <p className="mb-1 text-[11px] text-slate-400">Map spectrum hidden: {map.caveat}</p>}
       <div className="min-h-0 flex-1">
-        {pts.length === 0 ? (
-          <p className="p-4 text-xs text-slate-400">No usable measurements for this source.</p>
-        ) : tab === "spectrum" ? (
-          <SpectrumChart pts={pts} epochs={epochs} detectors={detectors} logY={logY} />
-        ) : tab === "lightcurve" ? (
+        {pts.length === 0 && !map?.spectrum ? (
+          <p className="p-4 text-xs text-slate-400">No usable measurements here.</p>
+        ) : shownTab === "spectrum" ? (
+          <SpectrumChart pts={pts} epochs={epochs} detectors={detectors} logY={logY} map={map?.spectrum ? { ...map.spectrum, label: map.label } : null} />
+        ) : shownTab === "lightcurve" ? (
           <LightCurveChart pts={lcPts.filter((p) => p.det === lcBand)} det={detectors[lcBand - 1]} />
         ) : (
           <PointTable pts={pts} />
         )}
       </div>
       <footer className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
-        {tab === "spectrum" && (
+        {shownTab === "spectrum" && (
           <label className="flex items-center gap-1">
             <input type="checkbox" checked={logY} onChange={(e) => setLogY(e.target.checked)} /> log flux
           </label>
         )}
-        {tab === "lightcurve" && hasRing && (
-          <span className="flex items-center gap-1" title={spectra.wing_note}>
+        {shownTab === "lightcurve" && hasRing && (
+          <span className="flex items-center gap-1" title={spectra?.wing_note}>
             Measure
             {(["core", "ring"] as const).map((k) => (
               <button
@@ -116,7 +138,7 @@ export function SpectrumPanel({ spectra, source, epochs, detectors, band, tab, o
             ))}
           </span>
         )}
-        {tab === "lightcurve" && (
+        {shownTab === "lightcurve" && (
           <span className="flex items-center gap-1">
             Detector
             {detectors.map((d) => (
@@ -131,9 +153,9 @@ export function SpectrumPanel({ spectra, source, epochs, detectors, band, tab, o
           </span>
         )}
         <span>
-          {tab === "lightcurve" && lcMeasure === "ring" && spectra.wing_arcsec
+          {shownTab === "lightcurve" && lcMeasure === "ring" && spectra?.wing_arcsec
             ? `Ring ${spectra.wing_arcsec[0].toFixed(0)}–${spectra.wing_arcsec[1].toFixed(0)}″ around the saturated core: tracks brightness over time; the ring holds a different share of the light at each wavelength, so compare dates within one detector only.`
-            : `${spectra.aperture_arcsec}″ aperture, local sky subtracted, no aperture correction: compare points with each other, not with catalogue magnitudes.`}
+            : `${spectra?.aperture_arcsec ?? 15.4}″ aperture, local sky subtracted, no aperture correction: compare points with each other, not with catalogue magnitudes.`}
         </span>
       </footer>
     </section>
@@ -196,12 +218,27 @@ function nearest(pts: Point[], sx: (p: Point) => number, sy: (p: Point) => numbe
 
 // ------------------------------------------------------------------ spectrum
 
-function SpectrumChart({ pts, epochs, detectors, logY }: { pts: Point[]; epochs: Epoch[]; detectors: Props["detectors"]; logY: boolean }) {
+const MAP_COLOUR = "#f0efec";
+
+function SpectrumChart({
+  pts,
+  epochs,
+  detectors,
+  logY,
+  map,
+}: {
+  pts: Point[];
+  epochs: Epoch[];
+  detectors: Props["detectors"];
+  logY: boolean;
+  map: (MapSpectrum & { label: string }) | null;
+}) {
   const [ref, { w, h }] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<Hover | null>(null);
   const nV = epochs.length;
   const good = pts.filter((p) => p.flag === FLAG_OK);
-  const yVals = (good.length >= 5 ? good : pts).map((p) => p.flux);
+  const mapVals = (map?.flux ?? []).filter((v): v is number => v !== null && Number.isFinite(v));
+  const yVals = (good.length >= 5 ? good : pts).map((p) => p.flux).concat(mapVals);
   let [y0, y1] = robustRange(yVals);
   if (logY) {
     const pos = yVals.filter((v) => v > 0).sort((a, b) => a - b);
@@ -239,8 +276,10 @@ function SpectrumChart({ pts, epochs, detectors, logY }: { pts: Point[]; epochs:
   return (
     <div className="flex h-full flex-col">
       <Legend
-        items={visits.map((e) => ({ color: visitColor(e, nV), label: `V${e + 1} ${formatMjdRange(epochs[e].mjd_min, epochs[e].mjd_max)}` }))}
-        extra="hollow = flagged"
+        items={visits
+          .map((e) => ({ color: visitColor(e, nV), label: `V${e + 1} ${formatMjdRange(epochs[e].mjd_min, epochs[e].mjd_max)}` }))
+          .concat(map ? [{ color: MAP_COLOUR, label: map.label }] : [])}
+        extra={pts.length ? "hollow = flagged" : undefined}
       />
       <div ref={ref} className="relative min-h-0 flex-1" onPointerLeave={() => setHover(null)}>
         <svg
@@ -289,6 +328,17 @@ function SpectrumChart({ pts, epochs, detectors, logY }: { pts: Point[]; epochs:
           <text transform={`translate(11 ${M.t + ih / 2}) rotate(-90)`} textAnchor="middle" className="fill-slate-500 text-[10px]">
             flux (mJy)
           </text>
+          {map && (
+            <path
+              d={mapPath(map, sx, clampY)}
+              fill="none"
+              stroke={MAP_COLOUR}
+              strokeOpacity={0.75}
+              strokeWidth={2}
+              strokeLinejoin="round"
+              aria-label={map.label}
+            />
+          )}
           <g>
             {pts.map((p) => {
               const c = visitColor(p.epoch, nV);
@@ -443,4 +493,20 @@ function Legend({ items, extra }: { items: { color: string; label: string }[]; e
       {extra && <span className="ml-auto text-slate-500">{extra}</span>}
     </div>
   );
+}
+
+/** SVG path through the map spectrum, broken wherever a channel has no value. */
+function mapPath(m: MapSpectrum, sx: (wl: number) => number, sy: (v: number) => number): string {
+  let d = "";
+  let pen = false;
+  m.wl.forEach((wl, i) => {
+    const f = m.flux[i];
+    if (f === null || !Number.isFinite(f)) {
+      pen = false;
+      return;
+    }
+    d += `${pen ? "L" : "M"}${sx(wl).toFixed(1)},${sy(f).toFixed(1)}`;
+    pen = true;
+  });
+  return d;
 }

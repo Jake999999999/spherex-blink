@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RotateCcw, Compass, Route, Keyboard, TriangleAlert, Activity, ChevronRight } from "lucide-react";
 import { GAIA_G_LIMIT, SkyCanvas, formatHover, type HoverInfo, type SkyCanvasHandle } from "./components/SkyCanvas";
-import { SpectrumPanel, type PanelTab } from "./components/SpectrumPanel";
+import { SpectrumPanel, type MapOverlay, type PanelTab } from "./components/SpectrumPanel";
+import { ColourMixer } from "./components/ColourMixer";
+import { PRESETS, colourLevels, mainToCube, mapSpectrum, mapSpectrumCaveat, windowMean, type Mix } from "./lib/colour";
 import { Tour } from "./components/Tour";
 import { availableSteps, type TourContext, type TourSetup } from "./lib/tour";
 import { framePlane, loadBundle, loadIndex, shortName, wisePlane, type Bundle, type IndexEntry } from "./lib/bundle";
@@ -13,7 +15,7 @@ import { diffLimit, levelsFor, subtract } from "./lib/stretch";
 import { DEFAULT_STATE, parseState, serializeState, type ViewState } from "./lib/urlState";
 import { COLORMAPS, COLORMAP_LABELS, buildLut, type ColormapName } from "./gl/colormaps";
 import { formatMjdMonth, formatMjdRange, mjdToYear, propagate } from "./lib/astro";
-import { formatDec, formatRa, separationArcsec, worldToPixel } from "./lib/wcs";
+import { formatDec, formatRa, pixelToWorld, separationArcsec, worldToPixel } from "./lib/wcs";
 import { nearestSource } from "./lib/spectra";
 import { centroid, fitMotion } from "./lib/motion";
 
@@ -80,6 +82,11 @@ export default function App() {
   const [pickHint, setPickHint] = useState<string | null>(null);
   const [tourIdx, setTourIdx] = useState<number | null>(() => (storage.get(TOUR_KEY) || initialUrl.target ? null : 0));
   const pending = useRef<TourSetup | null>(null);
+  // colour mode
+  const [mix, setMix] = useState<Mix>(PRESETS[0].mix);
+  const [presetId, setPresetId] = useState<string | null>(PRESETS[0].id);
+  const [colourScale, setColourScale] = useState<"balanced" | "physical">("balanced");
+  const [mapPoint, setMapPoint] = useState<{ x: number; y: number; mx: number; my: number; ra: number; dec: number } | null>(null);
   const frameWant = useRef<TourSetup["frame"] | null>(null);
 
   // index, then the chosen target
@@ -103,6 +110,7 @@ export default function App() {
         setStepIdx(0);
         setMeasure(false);
         setPickHint(null);
+        setMapPoint(null);
         const tourAct = pending.current?.target === id ? pending.current : null;
         pending.current = null;
         setSelectedId(tourAct?.select ?? null);
@@ -177,8 +185,25 @@ export default function App() {
   const isDiffRef = useRef(isDiff);
   isDiffRef.current = isDiff;
   const levels = step?.kind === "wise" && wiseLevels ? wiseLevels : spxLevels;
+
+  const cube = bundle?.cube ?? null;
+  const isColour = state.mode === "colour" && !!cube;
+  const colourPlanes = useMemo(
+    () =>
+      cube && state.mode === "colour"
+        ? { planes: [windowMean(cube, mix.r), windowMean(cube, mix.g), windowMean(cube, mix.b)] as [Float32Array, Float32Array, Float32Array], n: cube.n }
+        : null,
+    [cube, mix, state.mode],
+  );
+  const colourLv = useMemo(() => (colourPlanes ? colourLevels(colourPlanes.planes, lo, hi, colourScale) : null), [colourPlanes, lo, hi, colourScale]);
+  const cubeMid = cube && cube.desc.mjd_min !== null && cube.desc.mjd_max !== null ? (cube.desc.mjd_min + cube.desc.mjd_max) / 2 : undefined;
+
   const draw = {
-    mode: isDiff ? ("diff" as const) : ("single" as const),
+    mode: isColour ? ("colour" as const) : isDiff ? ("diff" as const) : ("single" as const),
+    colour:
+      isColour && colourLv && bundle && cube
+        ? { ...colourLv, cubeScale: (bundle.width * bundle.meta.pixel_scale_arcsec) / (cube.n * cube.desc.pixel_scale_arcsec) }
+        : undefined,
     layerA: isDiff ? layerOf(state.t2, state.band) : (step?.layer ?? 0),
     layerB: isDiff ? layerOf(state.t1, state.band) : 0,
     black: levels.black,
@@ -299,6 +324,23 @@ export default function App() {
   const onPick = useCallback(
     (x: number, y: number) => {
       if (!bundle) return;
+      if (state.mode === "colour" && bundle.cube) {
+        // any point: nearest baked star if there is one, else a map spectrum of that spot
+        const mjd = cubeMid ?? bundle.meta.epochs[0].mjd;
+        const src = bundle.spectra ? nearestSource(bundle.spectra, bundle.meta.wcs, x, y, mjd, 2.5) : null;
+        setPickHint(null);
+        setMeasure(false);
+        if (src) {
+          setSelectedId(src.id);
+          setMapPoint(null);
+        } else {
+          const [cx, cy] = mainToCube(bundle.meta.wcs, bundle.cube.desc.wcs, x, y);
+          const [ra, dec] = pixelToWorld(bundle.meta.wcs, x, y);
+          setSelectedId(null);
+          setMapPoint({ x: cx, y: cy, mx: x, my: y, ra, dec });
+        }
+        return;
+      }
       if (!bundle.spectra) {
         setPickHint("This bundle has no spectra yet (it was baked before photometry existed).");
         return;
@@ -310,11 +352,30 @@ export default function App() {
         setMeasure(false);
         setPickHint(null);
       } else {
-        setPickHint(`Spectra are baked for the target and the ${bundle.spectra.sources.length - 1} brightest Gaia stars in the field (G < 15). Click closer to one of those.`);
+        setPickHint(
+          `Per-exposure spectra exist for the target and the ${bundle.spectra.sources.length - 1} brightest Gaia stars here (G < 15). Click closer to one${
+            bundle.cube ? ", or switch to Colour to get a map spectrum of any point" : ""
+          }.`,
+        );
       }
     },
-    [bundle, step, state.t2],
+    [bundle, step, state.t2, state.mode, cubeMid],
   );
+
+  const mapOverlay = useMemo((): MapOverlay | null => {
+    if (!cube) return null;
+    const label = "All-sky map (time-averaged)";
+    if (selected) {
+      const pm = Math.hypot(selected.pmra, selected.pmdec) / 1000;
+      const caveat = mapSpectrumCaveat(cube, pm, selected.id === "target" && !!bundle?.meta.variable);
+      if (caveat) return { spectrum: null, caveat, label };
+      const [ra, dec] = propagate(selected.ra, selected.dec, selected.pmra, selected.pmdec, selected.ref_year, mjdToYear(cubeMid ?? 61000));
+      const [cx, cy] = worldToPixel(cube.desc.wcs, ra, dec);
+      return { spectrum: mapSpectrum(cube, cx, cy), caveat: null, label };
+    }
+    if (mapPoint) return { spectrum: mapSpectrum(cube, mapPoint.x, mapPoint.y), caveat: null, label };
+    return null;
+  }, [cube, selected, mapPoint, bundle, cubeMid]);
 
   const motion = useMemo(() => {
     if (!bundle || !selected) return null;
@@ -381,6 +442,10 @@ export default function App() {
         case "D":
           set({ mode: state.mode === "diff" ? "blink" : "diff" });
           break;
+        case "c":
+        case "C":
+          if (bundle?.cube) set({ mode: state.mode === "colour" ? "blink" : "colour" });
+          break;
         case "g":
         case "G":
           setShowGaia((g) => !g);
@@ -404,7 +469,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [steps.length, state.mode, set]);
+  }, [steps.length, state.mode, set, bundle]);
 
   if (error) return <Centered>{error}</Centered>;
   if (!index || !bundle) return <Centered>Loading SPHEREx data…</Centered>;
@@ -456,6 +521,7 @@ export default function App() {
             ["Space", "play / pause"],
             ["← →", "previous / next frame"],
             ["D", "blink ↔ difference"],
+            ["C", "colour view"],
             ["G", "Gaia star markers"],
             ["P", "smooth ↔ raw pixels"],
             ["R", "reset zoom"],
@@ -476,23 +542,42 @@ export default function App() {
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         {/* sky + timeline + spectrum */}
         <section className="flex min-h-[70vh] min-w-0 flex-1 flex-col lg:min-h-0">
-          <div data-tour="sky" className={`relative mx-4 flex-1 overflow-hidden rounded-xl border border-white/10 bg-[#03050a] ${selected ? "min-h-[220px]" : "min-h-[44vh]"}`}>
+          <div data-tour="sky" className={`relative mx-4 flex-1 overflow-hidden rounded-xl border border-white/10 bg-[#03050a] ${selected || mapPoint ? "min-h-[220px]" : "min-h-[44vh]"}`}>
             <SkyCanvas
               bundle={bundle}
               draw={draw}
-              step={step}
-              diffMjds={diffYears ? [diffYears[0], diffYears[1]] : undefined}
+              step={isColour ? null : step}
+              diffMjds={diffYears && !isColour ? [diffYears[0], diffYears[1]] : undefined}
               showGaia={showGaia}
               handleRef={canvasRef}
               onHover={setHover}
               valueAt={valueAt}
               onPick={onPick}
               selected={selected}
-              marks={motion?.pts ?? []}
+              marks={isColour && mapPoint ? [{ x: mapPoint.mx, y: mapPoint.my, label: "map spectrum" }] : (motion?.pts ?? [])}
+              colour={colourPlanes}
+              overlayMjd={isColour ? cubeMid : undefined}
             />
 
             {/* what am I looking at */}
-            <div className="pointer-events-none absolute left-3 top-3 max-w-[min(26rem,calc(100%-6.5rem))] rounded-lg border border-white/10 bg-slate-950/75 px-3 py-2 backdrop-blur">
+            {isColour && cube && (
+              <div className="pointer-events-none absolute left-3 top-3 max-w-[min(26rem,calc(100%-6.5rem))] rounded-lg border border-white/10 bg-slate-950/75 px-3 py-2 backdrop-blur">
+                <div className="flex items-center gap-2">
+                  <span className="rounded bg-emerald-400/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-200">Colour</span>
+                  <span className="text-sm font-semibold text-white">{PRESETS.find((p) => p.id === presetId)?.name ?? "Your own mix"}</span>
+                </div>
+                <p className="mt-1 hidden text-xs leading-snug text-slate-300 sm:block">
+                  {PRESETS.find((p) => p.id === presetId)?.what ??
+                    `Red ${mix.r.lo}–${mix.r.hi} µm, green ${mix.g.lo}–${mix.g.hi} µm, blue ${mix.b.lo}–${mix.b.hi} µm.`}{" "}
+                  Click anywhere for that spot's spectrum.
+                </p>
+                <p className="mt-1 text-[10px] text-slate-500">
+                  SPHEREx all-sky map (DR1), average of every visit {cube.desc.mjd_min ? formatMjdRange(cube.desc.mjd_min, cube.desc.mjd_max ?? cube.desc.mjd_min) : ""} ·{" "}
+                  {cube.desc.native_scale_arcsec}″ pixels · NASA/JPL-Caltech/IPAC
+                </p>
+              </div>
+            )}
+            <div className={`pointer-events-none absolute left-3 top-3 max-w-[min(26rem,calc(100%-6.5rem))] rounded-lg border border-white/10 bg-slate-950/75 px-3 py-2 backdrop-blur ${isColour ? "hidden" : ""}`}>
               <div className="flex items-center gap-2">
                 <span
                   className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
@@ -535,10 +620,10 @@ export default function App() {
             <div className="pointer-events-none absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2">
               {hover ? (
                 <span className="mono whitespace-nowrap rounded bg-slate-950/80 px-2 py-1 text-[11px] text-slate-300">
-                  {formatHover(hover)} ·{" "}
-                  {hover.value === null
-                    ? "no value (saturated or not covered)"
-                    : `${hover.value.toFixed(3)} ${step?.kind === "wise" && !isDiff ? "DN" : "MJy/sr"}`}
+                  {formatHover(hover)}
+                  {isColour
+                    ? ""
+                    : ` · ${hover.value === null ? "no value (saturated or not covered)" : `${hover.value.toFixed(3)} ${step?.kind === "wise" && !isDiff ? "DN" : "MJy/sr"}`}`}
                 </span>
               ) : (
                 <span className="hidden whitespace-nowrap rounded bg-slate-950/60 px-2 py-1 text-[11px] text-slate-400 sm:inline">Click a star for its spectrum · scroll to zoom · drag to pan</span>
@@ -569,6 +654,14 @@ export default function App() {
                 onPlay={() => setPlaying((p) => !p)}
                 onFps={setFps}
               />
+            ) : isColour && cube ? (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 text-xs text-slate-400">
+                <span className="text-sm text-slate-200">One picture from all visits</span>
+                <span>
+                  Each colour is the average brightness in its wavelength window, over every visit
+                  {cube.desc.mjd_min ? ` from ${formatMjdRange(cube.desc.mjd_min, cube.desc.mjd_max ?? cube.desc.mjd_min)}` : ""}. Use Blink to see changes over time.
+                </span>
+              </div>
             ) : (
               <div className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
                 <span className="text-slate-400">Compare</span>
@@ -584,18 +677,24 @@ export default function App() {
             )}
           </div>
 
-          {selected && bundle.spectra && (
+          {((selected && bundle.spectra) || (isColour && mapPoint)) && (
             <div data-tour="spectrum" className="mx-4 mb-3 mt-2 h-[44%] min-h-[280px] shrink-0 overflow-hidden rounded-xl border border-white/10">
               <SpectrumPanel
                 spectra={bundle.spectra}
                 source={selected}
+                title={mapPoint ? `Map point ${formatRa(mapPoint.ra)} ${formatDec(mapPoint.dec)}` : undefined}
+                map={mapOverlay}
                 epochs={m.epochs}
                 detectors={m.detectors}
                 band={state.band}
                 tab={tab}
                 onTab={setTab}
-                onClose={() => setSelectedId(null)}
+                onClose={() => {
+                  setSelectedId(null);
+                  setMapPoint(null);
+                }}
               >
+                {selected && (
                 <MotionBar
                   expectedPx={motion?.expectedPx ?? 0}
                   measuring={measure}
@@ -605,6 +704,7 @@ export default function App() {
                   gaia={{ east: selected.pmra / 1000, north: selected.pmdec / 1000 }}
                   frames={steps.length}
                 />
+                )}
               </SpectrumPanel>
             </div>
           )}
@@ -630,18 +730,21 @@ export default function App() {
           </section>
 
           <Section title="View" anchor="view">
-            <div className="grid grid-cols-2 gap-1 rounded-lg bg-white/[0.04] p-1">
+            <div className="grid grid-cols-3 gap-1 rounded-lg bg-white/[0.04] p-1">
               {(
                 [
-                  ["blink", "Blink", "flip through visits"],
-                  ["diff", "Difference", "see only what changed"],
+                  ["blink", "Blink", "flip visits"],
+                  ["diff", "Difference", "what changed"],
+                  ["colour", "Colour", "102 colours"],
                 ] as const
               ).map(([v, l, d]) => (
                 <button
                   key={v}
                   onClick={() => set({ mode: v })}
                   aria-pressed={state.mode === v}
-                  className={`rounded-md px-2 py-2 text-left transition ${state.mode === v ? "bg-sky-400/20 text-white" : "text-slate-400 hover:bg-white/5 hover:text-slate-200"}`}
+                  disabled={v === "colour" && !cube}
+                  title={v === "colour" && !cube ? "No colour map in this bundle" : undefined}
+                  className={`rounded-md px-2 py-2 text-left transition disabled:opacity-30 ${state.mode === v ? "bg-sky-400/20 text-white" : "text-slate-400 hover:bg-white/5 hover:text-slate-200"}`}
                 >
                   <span className="block text-sm font-medium">{l}</span>
                   <span className="block text-[11px] opacity-80">{d}</span>
@@ -650,9 +753,56 @@ export default function App() {
             </div>
           </Section>
 
-          <Section title="Wavelength" hint="SPHEREx splits the infrared into six detectors. Longer wavelengths see cooler things.">
-            <WavelengthPicker detectors={m.detectors} band={state.band} available={(d) => epochsWithBand(bundle, d).length > 0} onBand={(d) => set({ band: d })} />
-          </Section>
+          {isColour ? (
+            <Section title="Colours" hint="Each colour of the picture is the average brightness in one wavelength window. Drag the windows, or focus one and use ← →.">
+              <div className="mb-3 grid grid-cols-2 gap-1">
+                {PRESETS.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => {
+                      setPresetId(p.id);
+                      setMix(p.mix);
+                    }}
+                    aria-pressed={presetId === p.id}
+                    title={p.what}
+                    className={`rounded-md border px-2 py-1.5 text-left text-xs ${presetId === p.id ? "border-emerald-400/60 bg-emerald-400/10 text-white" : "border-white/10 text-slate-300 hover:bg-white/5"}`}
+                  >
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+              <ColourMixer
+                mix={mix}
+                detectors={m.detectors}
+                onChange={(next) => {
+                  setMix(next);
+                  setPresetId(null);
+                }}
+              />
+              <div className="mt-3 grid grid-cols-2 gap-1 rounded-lg bg-white/[0.04] p-1 text-xs">
+                {(
+                  [
+                    ["balanced", "Balanced", "each colour stretched on its own"],
+                    ["physical", "True ratios", "one brightness scale for all three"],
+                  ] as const
+                ).map(([v, l, d]) => (
+                  <button
+                    key={v}
+                    onClick={() => setColourScale(v)}
+                    aria-pressed={colourScale === v}
+                    title={d}
+                    className={`rounded-md py-1.5 ${colourScale === v ? "bg-white/10 text-white" : "text-slate-400"}`}
+                  >
+                    {l}
+                  </button>
+                ))}
+              </div>
+            </Section>
+          ) : (
+            <Section title="Wavelength" hint="SPHEREx splits the infrared into six detectors. Longer wavelengths see cooler things.">
+              <WavelengthPicker detectors={m.detectors} band={state.band} available={(d) => epochsWithBand(bundle, d).length > 0} onBand={(d) => set({ band: d })} />
+            </Section>
+          )}
 
           <Section title="Show">
             <Toggle

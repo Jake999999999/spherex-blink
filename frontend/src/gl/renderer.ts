@@ -37,6 +37,10 @@ uniform float uMix;       // crossfade weight toward uLayerB in single mode (0 =
 uniform vec3 uNoData;
 uniform float uGrid;      // >0 draws the pixel grid at this screen-pixel size
 uniform int uSmooth;      // 1 = Catmull-Rom bicubic display interpolation, 0 = raw pixels
+uniform sampler2DArray uColour; // layers 0,1,2 = R,G,B planes on the coarser cube grid
+uniform vec3 uCBlack;
+uniform vec3 uCWhite;
+uniform float uCubeScale; // main-grid extent / cube-grid extent (both centred on the same point)
 out vec4 outColor;
 
 float stretch01(float x) {
@@ -47,6 +51,36 @@ float stretch01(float x) {
 float fetchPx(int layer, ivec2 p) {
   ivec2 s = textureSize(uFrames, 0).xy;
   return texelFetch(uFrames, ivec3(clamp(p, ivec2(0), s - 1), layer), 0).r;
+}
+
+float fetchC(int layer, ivec2 p) {
+  ivec2 s = textureSize(uColour, 0).xy;
+  return texelFetch(uColour, ivec3(clamp(p, ivec2(0), s - 1), layer), 0).r;
+}
+
+vec4 crWeights(float t);
+
+// Same interpolation as sampleLayer, on the colour planes.
+float sampleColour(int layer, vec2 uv) {
+  vec2 s = vec2(textureSize(uColour, 0).xy);
+  ivec2 nearest = ivec2(floor(uv * s));
+  if (uSmooth == 0) return fetchC(layer, nearest);
+  vec2 p = uv * s - 0.5;
+  ivec2 i = ivec2(floor(p));
+  vec2 f = p - floor(p);
+  vec4 wx = crWeights(f.x);
+  vec4 wy = crWeights(f.y);
+  float acc = 0.0;
+  for (int y = 0; y < 4; y++) {
+    float row = 0.0;
+    for (int x = 0; x < 4; x++) {
+      float v = fetchC(layer, i + ivec2(x - 1, y - 1));
+      if (v < -1e29) return fetchC(layer, nearest);
+      row += v * wx[x];
+    }
+    acc += row * wy[y];
+  }
+  return acc;
 }
 
 vec4 crWeights(float t) {
@@ -79,8 +113,18 @@ float sampleLayer(int layer, vec2 uv) {
 }
 
 void main() {
-  float a = sampleLayer(uLayerA, vUv);
   vec3 col;
+  if (uMode == 2) {
+    vec2 cuv = 0.5 + (vUv - 0.5) * uCubeScale;
+    if (any(lessThan(cuv, vec2(0.0))) || any(greaterThan(cuv, vec2(1.0)))) { outColor = vec4(uNoData, 1.0); return; }
+    vec3 v = vec3(sampleColour(0, cuv), sampleColour(1, cuv), sampleColour(2, cuv));
+    if (any(lessThan(v, vec3(-1e29)))) { outColor = vec4(uNoData, 1.0); return; }
+    vec3 x = (v - uCBlack) / max(uCWhite - uCBlack, vec3(1e-12));
+    col = vec3(stretch01(x.r), stretch01(x.g), stretch01(x.b));
+    outColor = vec4(col, 1.0);
+    return;
+  }
+  float a = sampleLayer(uLayerA, vUv);
   if (uMode == 1) {
     float b = sampleLayer(uLayerB, vUv);
     if (a < -1e29 || b < -1e29) { outColor = vec4(uNoData, 1.0); return; }
@@ -104,8 +148,16 @@ void main() {
   outColor = vec4(col, 1.0);
 }`;
 
+export interface ColourParams {
+  black: [number, number, number];
+  white: [number, number, number];
+  /** main-grid extent divided by cube-grid extent */
+  cubeScale: number;
+}
+
 export interface DrawParams {
-  mode: "single" | "diff";
+  mode: "single" | "diff" | "colour";
+  colour?: ColourParams;
   layerA: number;
   layerB: number;
   black: number;
@@ -143,7 +195,8 @@ export class Renderer {
     this.prog = link(gl, VERT, FRAG);
     gl.useProgram(this.prog);
     for (const n of ["uScale", "uOffset", "uSize", "uFrames", "uLut", "uDivLut", "uMode", "uLayerA", "uLayerB",
-      "uBlack", "uWhite", "uLimit", "uStretch", "uBeta", "uMix", "uNoData", "uGrid", "uSmooth"]) {
+      "uBlack", "uWhite", "uLimit", "uStretch", "uBeta", "uMix", "uNoData", "uGrid", "uSmooth",
+      "uColour", "uCBlack", "uCWhite", "uCubeScale"]) {
       this.loc[n] = gl.getUniformLocation(this.prog, n);
     }
     const vbo = gl.createBuffer();
@@ -177,6 +230,26 @@ export class Renderer {
     this.width = width;
     this.height = height;
     this.layers = planes.length;
+  }
+
+  private colourTex: WebGLTexture | null = null;
+
+  /** Three planes (R, G, B), each n*n float32, on the cube grid. NaN -> sentinel. */
+  uploadColour(planes: [Float32Array, Float32Array, Float32Array], n: number): void {
+    const gl = this.gl;
+    if (this.colourTex) gl.deleteTexture(this.colourTex);
+    this.colourTex = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.colourTex);
+    for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]])
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, k, v);
+    gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.R32F, n, n, 3);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    const tmp = new Float32Array(n * n);
+    planes.forEach((p, i) => {
+      for (let k = 0; k < tmp.length; k++) tmp[k] = Number.isFinite(p[k]) ? p[k] : NODATA;
+      gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, i, n, n, 1, gl.RED, gl.FLOAT, tmp);
+    });
   }
 
   resize(cssWidth: number, cssHeight: number, dpr: number): void {
@@ -216,7 +289,16 @@ export class Renderer {
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, this.divLut);
     gl.uniform1i(this.loc.uDivLut, 2);
-    gl.uniform1i(this.loc.uMode, p.mode === "diff" ? 1 : 0);
+    const colourOk = p.mode === "colour" && !!p.colour && !!this.colourTex;
+    gl.uniform1i(this.loc.uMode, colourOk ? 2 : p.mode === "diff" ? 1 : 0);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.colourTex ?? this.tex);
+    gl.uniform1i(this.loc.uColour, 3);
+    if (colourOk) {
+      gl.uniform3f(this.loc.uCBlack, ...p.colour!.black);
+      gl.uniform3f(this.loc.uCWhite, ...p.colour!.white);
+      gl.uniform1f(this.loc.uCubeScale, p.colour!.cubeScale);
+    }
     gl.uniform1i(this.loc.uLayerA, clampLayer(p.layerA, this.layers));
     gl.uniform1i(this.loc.uLayerB, clampLayer(p.layerB, this.layers));
     gl.uniform1f(this.loc.uBlack, p.black);
@@ -234,6 +316,7 @@ export class Renderer {
   dispose(): void {
     const gl = this.gl;
     if (this.tex) gl.deleteTexture(this.tex);
+    if (this.colourTex) gl.deleteTexture(this.colourTex);
     gl.deleteTexture(this.lut);
     gl.deleteTexture(this.divLut);
     gl.deleteProgram(this.prog);
