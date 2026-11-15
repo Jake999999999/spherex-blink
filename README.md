@@ -8,19 +8,19 @@ A NASA Space Apps Challenge 2026 entry. Not a NASA product.
 
 ## What you can do
 
-- **Any spot in the sky**: type a name (“R Draconis”) or coordinates (`08h55m10.831s -07d14m42.53s`, `133.795 -7.245`), choose the field of view (2–15′), and the app fetches the SPHEREx exposures for that patch (plus, with the local server, the WISE images and Gaia stars), processes them and shows them like a little video. A link with `?ra=…&dec=…&fov=…` opens the same view (embeddable). It works two ways:
+- **Any spot in the sky**: type a name (“R Draconis”), decimal/sexagesimal coordinates (`08h55m10.831s -07d14m42.53s`, `133.795 -7.245`), click the **shuffle button** next to the search bar to fill a verified random IR target, or load a CSV/TSV **Target List** (`name, ra, dec`) to step through candidates. Choose the field of view (2–15′), and the app fetches the SPHEREx exposures for that patch (plus, with the local server, WISE/NEOWISE images and Gaia stars). A **Share** button (or `?ra=…&dec=…&fov=…`) copies a direct link to the exact view (embeddable). A live **Data Source Health** bar pings NASA S3, IRSA, Gaia, VizieR, CDS Sesame, and the data mirror so you can see immediately if an upstream archive is down. It works two ways:
   - **In your browser, with nothing to install** (this is what the public site does): the 102-colour map comes straight from NASA's public copy of SPHEREx on Amazon S3, in seconds. To blink the spot, the app gives you a link to IRSA's list of exposures there; save that page and drop it on the app (or paste it, or drop SPHEREx FITS files you downloaded from IRSA). The app then reads just the field's rows of each exposure from S3 and masks, sky-subtracts, aligns and stacks them in your browser (a quick look is about 50–80 MB and under a minute on a good connection).
   - **With the small local server** (below), which also adds the WISE/NEOWISE frames, Gaia stars, per-star spectra and light curves, and wavelength-matched differences.
 
-- **Blink** between the SPHEREx visits of a patch of sky, plus WISE images from 2010 and NEOWISE images from about every six months between 2014 and 2024: up to ~25 frames over 16 years, so nearby stars glide across the field like a little video.
-- **Difference**: subtract an older visit from a newer one. Stars that didn't change disappear; a moving object leaves an amber/cyan pair, a brightening star turns amber.
+- **Blink** between the SPHEREx visits of a patch of sky, plus WISE images from 2010 and NEOWISE images from about every six months between 2014 and 2024: up to ~25 frames over 16 years, so nearby stars glide across the field like a little video. Export the animation directly as an **animated GIF** (`GIF` button in the top-right image overlay when Blink mode is active).
+- **Difference**: subtract an older visit from a newer one (with baseline days and amber = brighter / cyan = dimmer legend). Wavelength-matched stacks suppress stellar colour leakage; static stars cancel, moving objects leave an amber/cyan pair, and brightening stars turn amber.
 - **Pick a wavelength**: SPHEREx's six detectors cover 0.75–5.0 µm. Cool objects (brown dwarfs) get brighter at long wavelengths.
-- **Click any marked star** for its spectrum (one dot per SPHEREx exposure), its light curve and a table/CSV/ECSV of every measurement. Brightness comes from fitting SPHEREx's official PSF (switchable to aperture sums, or a ring around the core for saturated stars), with error bars calibrated on steady stars.
+- **Click any marked star** for its spectrum (one dot per SPHEREx exposure), its light curve, and a table/CSV/ECSV of every measurement (with `obs_id` provenance and `mJy`, `AB mag`, or `λF_λ` units). Brightness comes from fitting SPHEREx's official PSF (switchable to aperture sums, or a ring around the core for saturated stars), with error bars calibrated on steady stars. In the spectrum view, you can also overlay **+ 2MASS/WISE** catalogue photometry (live from VizieR), fit and overlay a **Planck blackbody** temperature curve, and slide **Redshift `z`** (0–4) to shift reference spectral lines.
 - **Colour**: false-colour pictures from SPHEREx's 102-colour all-sky map, with presets (methane, water, warm dust) or your own three wavelength windows. Brown dwarfs turn pink in the methane view. Click any point for its map spectrum.
 - **Measure motion**: centroid a moving star in each frame and fit its speed, compared with ESA's Gaia catalogue.
 - **How accurate is it?** Checked against 2MASS, WISE and Gaia: brightness within 3% (star-to-star scatter 1–4% with PSF fitting), positions within 0.7″, motions within 1.3% (see [`docs/VALIDATION.md`](docs/VALIDATION.md)).
 - **Listen and read**: every spectrum and light curve can be played as sound and comes with a plain-language summary; single-key shortcuts can be switched off; blinking never exceeds 3 changes per second.
-- **Guided tour** (two minutes) for first-time visitors.
+- **Guided tour & AI coordinate prompts**: two-minute interactive tour for first-time visitors, plus an in-app **Guide** explaining SPHEREx and copyable **AI prompts** for generating valid decimal `RA Dec` coordinates or batch CSV target lists.
 - **Shareable links**: the view (target, mode, wavelength, visits, or the position and field of view) is kept in the URL.
 - **Bring your own data**: drop SPHEREx files downloaded from IRSA, or a whole field someone built with the pipeline, onto the page. See [`docs/GET-THE-DATA.md`](docs/GET-THE-DATA.md).
 - **Contamination flags**: tint the pixels SPHEREx flagged (cosmic rays, ghosts, halos…) and see which flags were set in each visit.
@@ -93,6 +93,7 @@ uv run python -m spherex_blink validate      # accuracy report: docs/VALIDATION.
 
 ## How it works
 
+- [`docs/PITCH-AND-DEMO-GUIDE.md`](docs/PITCH-AND-DEMO-GUIDE.md): **complete feature inventory, slide deck outline, 2–3 minute video script, and judge-winning emphasis points** (ready to feed into another AI for slides/video).
 - [`docs/HOW-IT-WORKS.md`](docs/HOW-IT-WORKS.md): the science and the processing, step by step.
 - [`docs/VALIDATION.md`](docs/VALIDATION.md): how accurate the numbers are, computed against 2MASS, WISE and Gaia.
 - [`docs/BUILD-LOG.md`](docs/BUILD-LOG.md): how this was built, what went wrong and what we changed.

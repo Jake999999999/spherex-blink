@@ -66,7 +66,7 @@ A visit stack mixes the wavelengths inside one detector, and each visit samples 
 
 ### 2.6 The 2010 WISE image (`wise.py`)
 
-NASA's WISE mapped the sky in 2010. We fetch AllWISE W1 (3.4 µm) and W2 (4.6 µm) cutouts, blur them to match SPHEREx's coarser pixels (Gaussian, σ = half the pixel-size ratio), subtract the background and resample onto the same grid. WISE is a different camera with different units, so it is only ever **blinked**, never subtracted from SPHEREx. W1 is paired with detectors 1–4, W2 with 5–6. If IRSA's WISE search is down at bake time, the bundle is made without it and says why.
+NASA's WISE mapped the sky in 2010. We fetch AllWISE W1 (3.4 µm) and W2 (4.6 µm) cutouts—querying overlapping tiles and mosaicking them when a field straddles a tile boundary—blur them to match SPHEREx's coarser pixels (Gaussian, σ = half the pixel-size ratio), subtract the background and resample onto the same grid. WISE is a different camera with different units, so it is only ever **blinked**, never subtracted from SPHEREx. W1 is paired with detectors 1–4, W2 with 5–6. If IRSA's WISE search is down at bake time, the bundle is made without it and says why. Similarly, `gaia.py` falls back to VizieR TAP (`tapvizier.cds.unistra.fr`) if ESA Gaia or IRSA TAP returns HTTP 502/503.
 
 ### 2.6b NEOWISE yearly frames (`neowise.py`)
 
@@ -125,8 +125,8 @@ React + TypeScript, drawing the sky with WebGL2.
 - Every frame of a target is uploaded once into a GPU texture array (32-bit floats), so switching frames costs nothing.
 - **Brightness mapping:** pixel values between a black and a white level (percentiles of all visits for that detector, so every visit is drawn on the same scale) go through an **asinh stretch** (`asinh(12x)/asinh(12)`), which lifts faint stars without blowing out bright ones; then through a colour map ("Night sky" by default, all lightness-ordered).
 - **Smoothing:** Catmull-Rom bicubic interpolation in the shader, for display only. Next to a missing pixel it falls back to the raw value so it never invents data across a gap.
-- **Saturated cores:** a star whose centre is saturated would show a dark hole. For display only, empty pixels next to very bright ones (top 0.5%) are filled with the brightest neighbour (`fillSaturated` in `src/lib/sequence.ts`). Hovering there says "no value (saturated or not covered)".
-- **Difference:** newer minus older visit, mapped symmetrically onto a cyan-black-amber colour map.
+- **Saturated cores:** a star whose centre is saturated would show a dark hole. For display only, empty pixels next to very bright ones (top 0.5%) are filled with the brightest neighbour (`fillSaturated` in `src/lib/sequence.ts`), applied in both Blink and matched Difference views (while keeping raw values untouched for hovering and FITS exports). Hovering there says "no value (saturated or not covered)".
+- **Difference:** newer minus older visit, mapped symmetrically onto a cyan-black-amber colour map (`amber = brighter in newer visit`, `cyan = dimmer in newer visit`), with the exact baseline in days shown in the comparison bar.
 
 ### 3.2 Overlays (`src/components/SkyCanvas.tsx`)
 
@@ -136,9 +136,9 @@ Gaia stars (G < 16) are drawn as circles at their positions on the date of the f
 
 A click picks the nearest baked source within 3 pixels of where it should be on the frame's date. The panel draws:
 
-- **Spectrum:** flux against wavelength, coloured by visit; hollow dots are flagged. Detector ranges are shaded, and water, methane, CO₂ and CO band positions are marked for reference (they are positions, not detections).
+- **Spectrum:** flux against wavelength (switchable between `mJy`, `AB mag`, and `λF_λ`), coloured by visit; hollow dots are flagged and 3σ upper limits are marked. Detector ranges are shaded, and water, methane, CO₂ and CO band positions plus atomic/molecular spectral lines (`SPECTRAL_LINES`) are marked for reference (with an interactive **Redshift `z`** slider from 0 to 4). You can also fit and overlay a **Planck blackbody** curve (`fitBlackbody`) and click **+ 2MASS/WISE** to overlay live 2MASS (`J, H, Ks`) and AllWISE (`W1, W2`) catalogue photometry from VizieR.
 - **Light curve:** flux against date for one detector, coloured by wavelength within it.
-- **Table / CSV:** every measurement.
+- **Table / CSV:** every measurement, including `obs_id` provenance.
 
 ### 3.4 Measuring motion (`src/lib/motion.ts`)
 
@@ -188,14 +188,16 @@ For each visit and detector the bake records the share of exposures flagged at e
 
 ### 3.7 Getting the data out
 
-- **FITS** (button on the image): exactly what's on screen (a visit frame, a difference or the three colour planes), with raw values (never the display-only fills), full sky coordinates and provenance in the header.
-- **ECSV** and CSV (spectrum panel): every measurement with units, errors, wavelength, bandwidth and flags; ECSV opens directly with astropy.
-- A test writes both with the app's own code and reads them back with astropy (`backend/tests/test_exports.py`).
+- **FITS** (top-right overlay button on the sky image): exactly what's on screen (a visit frame, a difference or the three colour planes), with raw values (never the display-only fills), full sky coordinates and provenance in the header.
+- **Animated GIF** (`GIF` button in the top-right overlay on the sky image when **Blink** mode is active): renders the current Blink sequence (including overlays/timestamps) client-side with a zero-dependency GIF89a + LZW encoder (`src/lib/gif.ts`) at the selected frame rate for slides and papers.
+- **Share link** (`Share` button in the target bar): copies a deep URL encoding the current target/coordinates, mode, band, visits, colour preset, and stretch (`src/lib/urlState.ts`).
+- **ECSV** and **CSV** (spectrum panel): every measurement with units, errors, wavelength, bandwidth, `obs_id` provenance, and flags; ECSV opens directly with `astropy.table.Table.read`.
+- A test writes both FITS and ECSV with the app's own code and reads them back with astropy (`backend/tests/test_exports.py`).
 - Cite with `CITATION.cff`; tests run on every push (`.github/workflows/ci.yml`).
 
-### 3.8 Tour, URL and keys
+### 3.8 Tour, Guide, Target List, Health Bar, URL and keys
 
-The guided tour (`src/lib/tour.ts`) is a list of steps; each can set up the view, spotlight a part of the page and wait for the visitor to try one thing. The view is mirrored in the URL (`?target=…&mode=…&band=…&t1=…&t2=…`). Keys: Space, ← →, D, G, P, R, Esc. `?silent` is for automated testing.
+The guided tour (`src/lib/tour.ts`) is a list of steps; each can set up the view, spotlight a part of the page and wait for the visitor to try one thing. An in-app **Guide** (`GuideAndSettings.tsx`) explains SPHEREx, how to use each mode, and includes one-click copyable **AI prompts** for generating decimal `RA Dec` targets or batch CSVs. Next to the search box, a **shuffle icon button** (`pickRandomSpot` in `src/lib/coords.ts`) fills a verified random IR sky coordinate, and a **Target List** (`TargetListStepper.tsx`) lets researchers load a `name,ra,dec` CSV/TSV to step Prev/Next through candidates. Below the search bar, a **Data Source Health** bar (`DataSourceStatus.tsx`) pings AWS S3, ESA Gaia, VizieR TAP, CDS Sesame, the data mirror, and (in server mode) IRSA SIA/cutouts so users can immediately see if an upstream archive is down. The view is mirrored in the URL (`?target=…&mode=…&band=…&t1=…&t2=…`). Keys: Space, ← →, D, G, P, R, Esc. `?silent` is for automated testing.
 
 ## 4. What the results mean, honestly
 
