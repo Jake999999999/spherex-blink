@@ -24,7 +24,7 @@ export function TargetBar({ targets, current, onPick }: Props) {
             }`}
           >
             <span className="flex w-full items-center gap-2">
-              <span className={`mono text-[11px] ${active ? "text-sky-300" : "text-slate-500"}`}>{String(i + 1).padStart(2, "0")}</span>
+              <span className={`mono text-[11px] ${active ? "text-sky-300" : "text-slate-400"}`}>{String(i + 1).padStart(2, "0")}</span>
               <span className={`truncate text-sm font-semibold ${active ? "text-white" : "text-slate-200"}`}>{shortName(t.name)}</span>
               {t.status === "conditional" && (
                 <span className="ml-auto rounded bg-amber-400/15 px-1.5 text-[10px] font-medium text-amber-300" title="Shown with caveats: see the target notes">

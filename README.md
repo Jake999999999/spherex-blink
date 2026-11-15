@@ -22,7 +22,7 @@ A NASA Space Apps Challenge 2026 entry. Not a NASA product.
 |---|---|
 | Barnard's Star | The fastest-moving star: a ~3′ leap from 2010 to 2026. Measured 10.42 ± 0.11″/yr vs Gaia's 10.39″/yr. |
 | Epsilon Indi Ba+Bb | Two brown dwarfs. Their spectrum shows water, methane, CO₂ and CO absorption. |
-| Pulsating red giant (Gaia DR3 2160548942811758720) | A star near the north ecliptic pole, seen daily by SPHEREx, fading to half brightness and back over 18 months. |
+| Pulsating red giant (Gaia DR3 2160548942811758720) | A star near the north ecliptic pole, seen daily by SPHEREx, dimming by about a third and brightening again over 18 months. |
 | RW Aurigae | A young star in a dusty disc (shown with caveats: saturated at most wavelengths). |
 | WISE 0855−0714 | The coldest known brown dwarf. In 2025–26 it sits next to a brighter star SPHEREx can't separate, so the app says plainly that this is not a detection. |
 

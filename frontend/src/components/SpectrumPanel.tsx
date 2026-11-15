@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Download, X } from "lucide-react";
+import { Download, Square, Volume2, X } from "lucide-react";
+import { describeLightCurve, describeSpectrum, detrendByWavelength, playPlan, sonifyPlan, stopSound } from "../lib/sonify";
 import type { Epoch } from "../lib/bundle";
 import { FLAG_OK, REFERENCE_BANDS, points, preferRing, toCsv, type Measure, type Point, type Spectra, type SpectraSource } from "../lib/spectra";
 import type { MapSpectrum } from "../lib/colour";
@@ -37,9 +38,11 @@ interface Props {
   onTab: (t: PanelTab) => void;
   onClose: () => void;
   children?: React.ReactNode; // extra tools (motion fit)
+  /** ?silent: never make sound */
+  silent?: boolean;
 }
 
-export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, band, tab, onTab, onClose, children }: Props) {
+export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, band, tab, onTab, onClose, children, silent = false }: Props) {
   const pts = useMemo(() => (spectra && source ? points(spectra, source) : []), [spectra, source]);
   const nGood = pts.filter((p) => p.flag === FLAG_OK).length;
   const [lcBand, setLcBand] = useState(band);
@@ -53,6 +56,41 @@ export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, 
   const lcPts = useMemo(() => (spectra && source ? points(spectra, source, lcMeasure) : []), [spectra, source, lcMeasure]);
   const tabs = source ? (["spectrum", "lightcurve", "table"] as const) : (["spectrum"] as const);
   const shownTab: PanelTab = source ? tab : "spectrum";
+
+  const [playing, setPlaying] = useState(false);
+  useEffect(() => () => stopSound(), []);
+  const lcDet = lcPts.filter((p) => p.det === lcBand);
+  const mapPts: Point[] = map?.spectrum
+    ? map.spectrum.wl.flatMap((w, i) => {
+        const f = map.spectrum!.flux[i];
+        return f === null ? [] : [{ i, mjd: 0, wl: w, bw: null, flux: f, err: 0, flag: 0, det: 0, epoch: -1 }];
+      })
+    : [];
+  const words =
+    shownTab === "lightcurve"
+      ? describeLightCurve(lcDet)
+      : shownTab === "spectrum"
+        ? describeSpectrum(pts.length ? pts : mapPts.flatMap((p) => [p, { ...p, i: p.i + 1000 }]))
+        : "";
+  const listen = () => {
+    if (playing) {
+      stopSound();
+      setPlaying(false);
+      return;
+    }
+    let notes;
+    if (shownTab === "lightcurve") {
+      const rel = detrendByWavelength(lcDet);
+      notes = sonifyPlan(rel.map((r) => r.mjd), rel.map((r) => r.rel));
+    } else {
+      const src = (pts.length ? pts.filter((p) => p.flag === 0) : mapPts).slice().sort((a, b) => a.wl - b.wl);
+      notes = sonifyPlan(src.map((p) => p.wl), src.map((p) => p.flux));
+    }
+    if (playPlan(notes, silent)) {
+      setPlaying(true);
+      window.setTimeout(() => setPlaying(false), 3100);
+    }
+  };
 
   const download = () => {
     const csv = source
@@ -92,6 +130,17 @@ export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, 
             </button>
           ))}
         </div>
+        {shownTab !== "table" && (
+          <button
+            onClick={listen}
+            disabled={silent}
+            title={silent ? "Sound is off on this page (?silent)" : shownTab === "lightcurve" ? "Listen: pitch follows brightness over time" : "Listen: pitch follows brightness from short to long wavelength; dips sound as drops"}
+            aria-label={playing ? "Stop sound" : "Listen to this chart"}
+            className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-slate-300 hover:bg-sky-400/10 disabled:opacity-40"
+          >
+            {playing ? <Square size={13} /> : <Volume2 size={14} />} {playing ? "Stop" : "Listen"}
+          </button>
+        )}
         <button title="Download CSV" aria-label="Download CSV" onClick={download} className="rounded p-1 text-slate-300 hover:bg-sky-400/10">
           <Download size={14} />
         </button>
@@ -118,7 +167,8 @@ export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, 
           <PointTable pts={pts} />
         )}
       </div>
-      <footer className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+      {words && <p className="mt-1 text-xs text-slate-200">{words}</p>}
+      <footer className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
         {shownTab === "spectrum" && (
           <label className="flex items-center gap-1">
             <input type="checkbox" checked={logY} onChange={(e) => setLogY(e.target.checked)} /> log flux
@@ -296,7 +346,7 @@ function SpectrumChart({
           {detectors.map((d, i) => (
             <g key={d.detector}>
               {i % 2 === 0 && <rect x={sx(d.wl_min)} y={M.t} width={sx(d.wl_max) - sx(d.wl_min)} height={ih} fill="rgba(148,163,184,0.05)" />}
-              <text x={(sx(d.wl_min) + sx(d.wl_max)) / 2} y={M.t + ih - 4} textAnchor="middle" className="fill-slate-600 text-[10px]">
+              <text x={(sx(d.wl_min) + sx(d.wl_max)) / 2} y={M.t + ih - 4} textAnchor="middle" className="fill-slate-400 text-[10px]">
                 D{d.detector}
               </text>
             </g>
@@ -304,7 +354,7 @@ function SpectrumChart({
           {REFERENCE_BANDS.map((b, i) => (
             <g key={`${b.label}${b.wl}`}>
               <line x1={sx(b.wl)} x2={sx(b.wl)} y1={M.t} y2={M.t + ih} stroke="rgba(148,163,184,0.25)" strokeDasharray="2 4" />
-              <text x={sx(b.wl)} y={M.t - (i % 2 ? 4 : 14)} textAnchor="middle" className="fill-slate-500 text-[10px]">
+              <text x={sx(b.wl)} y={M.t - (i % 2 ? 4 : 14)} textAnchor="middle" className="fill-slate-400 text-[10px]">
                 {b.label}
               </text>
             </g>
@@ -322,10 +372,10 @@ function SpectrumChart({
               {v}
             </text>
           ))}
-          <text x={M.l + iw / 2} y={h - 3} textAnchor="middle" className="fill-slate-500 text-[10px]">
+          <text x={M.l + iw / 2} y={h - 3} textAnchor="middle" className="fill-slate-400 text-[10px]">
             wavelength (µm)
           </text>
-          <text transform={`translate(11 ${M.t + ih / 2}) rotate(-90)`} textAnchor="middle" className="fill-slate-500 text-[10px]">
+          <text transform={`translate(11 ${M.t + ih / 2}) rotate(-90)`} textAnchor="middle" className="fill-slate-400 text-[10px]">
             flux (mJy)
           </text>
           {map && (
@@ -419,10 +469,10 @@ function LightCurveChart({ pts, det }: { pts: Point[]; det: { detector: number; 
               {v.toFixed(xt.length > 1 && xt[1] - xt[0] < 1 ? 1 : 0)}
             </text>
           ))}
-          <text x={M.l + iw / 2} y={h - 3} textAnchor="middle" className="fill-slate-500 text-[10px]">
+          <text x={M.l + iw / 2} y={h - 3} textAnchor="middle" className="fill-slate-400 text-[10px]">
             year
           </text>
-          <text transform={`translate(11 ${M.t + ih / 2}) rotate(-90)`} textAnchor="middle" className="fill-slate-500 text-[10px]">
+          <text transform={`translate(11 ${M.t + ih / 2}) rotate(-90)`} textAnchor="middle" className="fill-slate-400 text-[10px]">
             flux (mJy)
           </text>
           {pts.map((p) => {
@@ -490,7 +540,7 @@ function Legend({ items, extra }: { items: { color: string; label: string }[]; e
           {it.label}
         </span>
       ))}
-      {extra && <span className="ml-auto text-slate-500">{extra}</span>}
+      {extra && <span className="ml-auto text-slate-400">{extra}</span>}
     </div>
   );
 }

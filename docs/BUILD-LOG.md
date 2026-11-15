@@ -50,7 +50,7 @@ Cutouts came at about 8 per minute, with roughly one request in three answered "
 Aperture photometry on every single exposure for the target and up to 30 field stars, a spectrum / light-curve / table panel, click-to-select, a motion fitter and a first tour. Results on real data:
 
 - **Barnard's Star motion** from the images: 10.42 ± 0.11″/yr; Gaia: 10.39″/yr.
-- **Saturation everywhere:** most targets are too bright for SPHEREx. Barnard's Star saturated in 240 of 243 measurements. The pole star (Gaia G = 12.4, but very red) saturated in 448 of 480. The fix was **ring photometry**: measure the light in a ring around the saturated centre. That recovered the pole star's pulsation, fading to about half and back over 18 months.
+- **Saturation everywhere:** most targets are too bright for SPHEREx. Barnard's Star saturated in 240 of 243 measurements. The pole star (Gaia G = 12.4, but very red) saturated in 448 of 480. The fix was **ring photometry**: measure the light in a ring around the saturated centre. That recovered the pole star's pulsation: once the change of brightness with wavelength is allowed for, it dims by about a third between visits and brightens again over 18 months.
 - **Epsilon Indi B's spectrum** came out textbook: water, methane, CO₂ and CO absorption, absent in a nearby ordinary star.
 - **WISE 0855 failed honestly:** its signal at short wavelengths, where it should be invisible, gave it away. It is passing 4–11″ from a brighter background star that SPHEREx cannot separate from it. The app now says this is not a detection.
 - **Bug:** a URL setting (`band=5`) was ignored, because a value was set inside a React state updater, which development mode calls twice.

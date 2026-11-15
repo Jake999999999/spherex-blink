@@ -113,7 +113,7 @@ export const TOUR: TourStep[] = [
     anchor: "spectrum",
     title: "Watch a star breathe",
     body:
-      "This giant star swells and shrinks over about a year. The light curve shows its brightness on every date SPHEREx looked: down to about half, then back up. (Its centre is so bright that we measure a ring of light around it instead.)",
+      "This giant star swells and shrinks over about a year. The light curve shows its brightness on every date SPHEREx looked: it dims by about a third, then brightens again. (Its centre is so bright that we measure a ring of light around it instead.)",
     setup: { target: "nep-lpv", patch: { mode: "blink", band: 6, wise: false }, select: "target", tab: "lightcurve", playing: false },
     needs: "nep-lpv",
   },

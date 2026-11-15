@@ -43,6 +43,8 @@ interface Props {
   colour?: { planes: [Float32Array, Float32Array, Float32Array]; n: number } | null;
   /** date for the overlays when no frame/difference is shown (colour mode) */
   overlayMjd?: number;
+  /** text alternative for screen readers */
+  ariaLabel?: string;
 }
 
 export interface MovingSource {
@@ -61,7 +63,7 @@ export interface HoverInfo {
   value: number | null;
 }
 
-export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, onHover, valueAt, onPick, selected, marks, colour, overlayMjd }: Props) {
+export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, onHover, valueAt, onPick, selected, marks, colour, overlayMjd, ariaLabel }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const glRef = useRef<HTMLCanvasElement>(null);
   const ovRef = useRef<HTMLCanvasElement>(null);
@@ -171,6 +173,8 @@ export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, o
   return (
     <div
       ref={wrapRef}
+      role="img"
+      aria-label={ariaLabel}
       className="relative h-full w-full cursor-crosshair touch-none select-none overflow-hidden"
       onWheel={(e) => {
         const rect = wrapRef.current!.getBoundingClientRect();

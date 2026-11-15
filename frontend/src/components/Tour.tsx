@@ -123,14 +123,14 @@ export function Tour({ steps, index, taskDone, onIndex, onClose }: Props) {
           )}
           <span className="ml-auto" />
           {hasTask && !taskDone && (
-            <button onClick={() => onIndex(index + 1)} className="rounded-md px-2 py-1.5 text-xs text-slate-500 hover:text-slate-300">
+            <button onClick={() => onIndex(index + 1)} className="rounded-md px-2 py-1.5 text-xs text-slate-400 hover:text-slate-300">
               Skip
             </button>
           )}
           <button
             onClick={() => (last ? onClose() : onIndex(index + 1))}
             disabled={hasTask && !taskDone}
-            className="rounded-md bg-sky-400 px-3.5 py-1.5 text-sm font-semibold text-slate-950 hover:bg-sky-300 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
+            className="rounded-md bg-sky-400 px-3.5 py-1.5 text-sm font-semibold text-slate-950 hover:bg-sky-300 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-400"
           >
             {index === 0 ? "Start the tour" : last ? "Start exploring" : "Next"}
           </button>

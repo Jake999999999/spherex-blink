@@ -45,7 +45,7 @@ export function WavelengthPicker({ detectors, band, available, onBand }: Props) 
           );
         })}
       </div>
-      <div className="mono mt-1 flex justify-between text-[10px] text-slate-500">
+      <div className="mono mt-1 flex justify-between text-[10px] text-slate-400">
         <span>{lo.toFixed(2)} µm</span>
         <span>
           {detectors[band - 1]?.wl_min}–{detectors[band - 1]?.wl_max} µm

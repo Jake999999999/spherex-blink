@@ -12,7 +12,9 @@ interface Props {
   onFps: (f: number) => void;
 }
 
-const SPEEDS = [0.5, 1, 1.5, 3, 6];
+// At most 3 frame changes per second: blinking between very different frames is a large brightness
+// flip, and WCAG 2.3.1 sets three flashes per second as the limit.
+const SPEEDS = [0.5, 1, 1.5, 3];
 
 /**
  * Blink timeline. The 2010 WISE frame sits on the left, separated by a labelled gap (15 years would
@@ -50,7 +52,7 @@ export function Timeline({ steps, current, playing, fps, onStep, onPlay, onFps }
                 <span className={`mono whitespace-nowrap text-[11px] ${active ? "text-amber-200" : "text-slate-400"}`}>2010</span>
               </button>
               {spx.length > 0 && (
-                <span className="mono hidden items-center gap-1 text-[10px] text-slate-600 sm:flex">
+                <span className="mono hidden items-center gap-1 text-[10px] text-slate-400 sm:flex">
                   <span className="h-px w-6 border-t border-dashed border-slate-600" />
                   {Math.round(mjdToYear(spx[0].s.mjd) - mjdToYear(w.mjd))} yr
                   <span className="h-px w-6 border-t border-dashed border-slate-600" />
@@ -87,13 +89,13 @@ export function Timeline({ steps, current, playing, fps, onStep, onPlay, onFps }
       </div>
 
       <div className="hidden shrink-0 flex-col items-end sm:flex">
-        <span className="text-[11px] text-slate-500">Speed</span>
+        <span className="text-[11px] text-slate-400">Speed</span>
         <div className="flex gap-0.5">
           {SPEEDS.map((f) => (
             <button
               key={f}
               onClick={() => onFps(f)}
-              className={`mono rounded px-1.5 py-0.5 text-[11px] ${fps === f ? "bg-white/10 text-white" : "text-slate-500 hover:text-slate-300"}`}
+              className={`mono rounded px-1.5 py-0.5 text-[11px] ${fps === f ? "bg-white/10 text-white" : "text-slate-400 hover:text-slate-300"}`}
               title={`${f} frames per second`}
             >
               {f}×
@@ -101,8 +103,9 @@ export function Timeline({ steps, current, playing, fps, onStep, onPlay, onFps }
           ))}
         </div>
       </div>
+      {/* announce the frame only when someone steps to it, never on every blink */}
       <span className="sr-only" aria-live="polite">
-        {cur ? `${cur.label}, ${cur.sublabel}` : ""}
+        {!playing && cur ? `${cur.label}, ${cur.sublabel}` : ""}
       </span>
     </div>
   );

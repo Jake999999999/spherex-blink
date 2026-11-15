@@ -51,7 +51,7 @@ export function ColourMixer({ mix, detectors, onChange }: Props) {
             className={`absolute bottom-0 top-0 ${i % 2 ? "bg-white/[0.03]" : ""}`}
             style={{ left: `${toPct(d.wl_min)}%`, width: `${toPct(d.wl_max) - toPct(d.wl_min)}%` }}
           >
-            <span className="mono absolute bottom-0.5 left-1 text-[9px] text-slate-600">D{d.detector}</span>
+            <span className="mono absolute bottom-0.5 left-1 text-[9px] text-slate-400">D{d.detector}</span>
           </div>
         ))}
         {REFERENCE_BANDS.map((b) => (
@@ -97,7 +97,7 @@ export function ColourMixer({ mix, detectors, onChange }: Props) {
           );
         })}
       </div>
-      <div className="mono mt-1 flex justify-between text-[10px] text-slate-500">
+      <div className="mono mt-1 flex justify-between text-[10px] text-slate-400">
         <span>{LO} µm</span>
         <span>
           {KEYS.slice()

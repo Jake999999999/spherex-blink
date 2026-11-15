@@ -20,8 +20,8 @@ export function Accuracy({ target }: { target: string }) {
       .then(setV)
       .catch(() => setFailed(true));
   }, []);
-  if (failed) return <p className="mt-3 text-xs text-slate-500">No validation numbers in this build.</p>;
-  if (!v) return <p className="mt-3 text-xs text-slate-500">Loading…</p>;
+  if (failed) return <p className="mt-3 text-xs text-slate-400">No validation numbers in this build.</p>;
+  if (!v) return <p className="mt-3 text-xs text-slate-400">Loading…</p>;
   const bands = Object.entries(v.photometry.bands);
   const lo = Math.min(...bands.map(([, b]) => b.median_ratio));
   const hi = Math.max(...bands.map(([, b]) => b.median_ratio));
@@ -57,7 +57,7 @@ export function Accuracy({ target }: { target: string }) {
           <b className="text-white">Two products agree.</b> The all-sky map's spectra follow the single-exposure spectra to within {pct(v.map_vs_exposures.median_scatter)} in shape.
         </p>
       )}
-      <p className="text-slate-500">Computed by the pipeline on {v.generated_utc.slice(0, 10)}; details in docs/VALIDATION.md.</p>
+      <p className="text-slate-400">Computed by the pipeline on {v.generated_utc.slice(0, 10)}; details in docs/VALIDATION.md.</p>
     </div>
   );
 }

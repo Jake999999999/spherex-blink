@@ -126,6 +126,6 @@ The guided tour (`src/lib/tour.ts`) is a list of steps; each can set up the view
 
 - **Barnard's Star:** moves 1–2 SPHEREx pixels between visits; the jump is obvious only against 2010. Motion measured from the images: 10.42 ± 0.11″/yr, Gaia says 10.39″/yr. Too bright for a reliable spectrum.
 - **Epsilon Indi Ba+Bb:** 0.7″ apart, so one blended dot. The spectrum shows peaks near 1.25, 1.6, 2.1 and 4.0 µm and deep absorption by water (1.4, 1.9 µm), methane (2.3, 3.3 µm), CO₂ (4.3 µm) and CO (4.6 µm), as expected for cool brown dwarfs; a field star next to it shows none of this.
-- **The pulsating giant:** saturated at every wavelength; the ring light curve on detector 6 drops from about 430 to 240 mJy and rises to about 570 over 18 months, with peaks roughly 330 days apart (Gaia's period: about 372 days).
+- **The pulsating giant:** saturated at every wavelength; the ring light curve shows it dimming by about a third between visits and brightening again over 18 months, once the change of brightness with wavelength inside a detector is divided out (Gaia's period: about 372 days).
 - **RW Aurigae:** saturated on detectors 2–6. On detector 1 its brightness differs by 20–40% between visits, from only a few clean points each.
 - **WISE 0855−0714:** passes 4–11″ from a brighter background star during the SPHEREx visits, inside the measuring aperture. What we measure is mostly that star; this is not a detection.

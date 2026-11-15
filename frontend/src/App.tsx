@@ -19,9 +19,11 @@ import { formatMjdMonth, formatMjdRange, mjdToYear, propagate } from "./lib/astr
 import { formatDec, formatRa, pixelToWorld, separationArcsec, worldToPixel } from "./lib/wcs";
 import { nearestSource } from "./lib/spectra";
 import { centroid, fitMotion } from "./lib/motion";
+import { stopSound } from "./lib/sonify";
 
 const initialUrl = parseState(window.location.search);
 const SILENT = initialUrl.silent;
+const REDUCED_MOTION = typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
 declare global {
   interface Window {
@@ -63,7 +65,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [state, setState] = useState<ViewState>({ ...DEFAULT_STATE, ...stripSilent(initialUrl) });
   const [stepIdx, setStepIdx] = useState(0);
-  const [playing, setPlaying] = useState(true);
+  const [playing, setPlaying] = useState(() => !REDUCED_MOTION);
   const [fps, setFps] = useState(1.5);
   const [showGaia, setShowGaia] = useState(true);
   const [pixelGrid, setPixelGrid] = useState(false);
@@ -71,6 +73,7 @@ export default function App() {
   const [hi, setHi] = useState(99.8);
   const [smooth, setSmooth] = useState(true);
   const [showHelp, setShowHelp] = useState(false);
+  const [shortcutsOn, setShortcutsOn] = useState(() => storage.get("spherex-blink.shortcuts") !== "off");
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [diffPct, setDiffPct] = useState(99.8);
   const [cmap, setCmap] = useState<ColormapName>("night");
@@ -424,7 +427,12 @@ export default function App() {
   // keyboard
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+      const el = e.target as HTMLElement | null;
+      // never steal keys from text fields, menus or sliders (the colour mixer uses the arrow keys)
+      if (el && (el instanceof HTMLInputElement || el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement || el.isContentEditable || el.getAttribute("role") === "slider")) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      // single-key shortcuts can be switched off (WCAG 2.1.4); Esc always works
+      if (!shortcutsOn && e.key !== "Escape") return;
       const n = Math.max(1, steps.length);
       switch (e.key) {
         case " ":
@@ -456,10 +464,22 @@ export default function App() {
           canvasRef.current?.resetView();
           break;
         case "Escape":
+          stopSound();
           setSelectedId(null);
           setPickHint(null);
           setShowHelp(false);
           break;
+        case "n":
+        case "N": {
+          const srcs = bundle?.spectra?.sources ?? [];
+          if (!srcs.length) break;
+          const cur = srcs.findIndex((s) => s.id === selectedId);
+          const next = (cur + (e.shiftKey ? -1 : 1) + srcs.length) % srcs.length;
+          setSelectedId(srcs[next < 0 ? 0 : next].id);
+          setMapPoint(null);
+          setMeasure(false);
+          break;
+        }
         case "p":
         case "P":
           setSmooth((s) => !s);
@@ -470,7 +490,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [steps.length, state.mode, set, bundle]);
+  }, [steps.length, state.mode, set, bundle, shortcutsOn, selectedId]);
 
   if (error) return <Centered>{error}</Centered>;
   if (!index || !bundle) return <Centered>Loading SPHEREx data…</Centered>;
@@ -523,16 +543,28 @@ export default function App() {
             ["← →", "previous / next frame"],
             ["D", "blink ↔ difference"],
             ["C", "colour view"],
+            ["N / Shift+N", "next / previous measured star"],
             ["G", "Gaia star markers"],
             ["P", "smooth ↔ raw pixels"],
             ["R", "reset zoom"],
             ["Esc", "close the spectrum"],
           ].map(([k, v]) => (
-            <span key={k}>
+            <span key={k} className={shortcutsOn || k === "Esc" ? "" : "opacity-40"}>
               <kbd className="mono mr-2 rounded border border-white/20 px-1.5 py-0.5 text-[11px] text-white">{k}</kbd>
               {v}
             </span>
           ))}
+          <label className="flex items-center gap-2 sm:col-span-2 lg:col-span-4">
+            <input
+              type="checkbox"
+              checked={shortcutsOn}
+              onChange={(e) => {
+                setShortcutsOn(e.target.checked);
+                storage.set("spherex-blink.shortcuts", e.target.checked ? "on" : "off");
+              }}
+            />
+            Single-key shortcuts (turn off if you use speech input or they get in the way)
+          </label>
         </div>
       )}
 
@@ -558,6 +590,15 @@ export default function App() {
               marks={isColour && mapPoint ? [{ x: mapPoint.mx, y: mapPoint.my, label: "map spectrum" }] : (motion?.pts ?? [])}
               colour={colourPlanes}
               overlayMjd={isColour ? cubeMid : undefined}
+              ariaLabel={`${shortName(m.name)}: ${
+                isColour
+                  ? "false-colour picture from SPHEREx's all-sky map"
+                  : isDiff
+                    ? `difference image, ${formatMjdMonth(m.epochs[state.t2].mjd)} minus ${formatMjdMonth(m.epochs[state.t1].mjd)}`
+                    : step
+                      ? `${step.label}, ${step.sublabel}, ${det.wl_min} to ${det.wl_max} micrometres`
+                      : "no frame"
+              }. ${m.blurb}`}
             />
 
             {/* what am I looking at */}
@@ -572,7 +613,7 @@ export default function App() {
                     `Red ${mix.r.lo}–${mix.r.hi} µm, green ${mix.g.lo}–${mix.g.hi} µm, blue ${mix.b.lo}–${mix.b.hi} µm.`}{" "}
                   Click anywhere for that spot's spectrum.
                 </p>
-                <p className="mt-1 text-[10px] text-slate-500">
+                <p className="mt-1 text-[10px] text-slate-400">
                   SPHEREx all-sky map (DR1), average of every visit {cube.desc.mjd_min ? formatMjdRange(cube.desc.mjd_min, cube.desc.mjd_max ?? cube.desc.mjd_min) : ""} ·{" "}
                   {cube.desc.native_scale_arcsec}″ pixels · NASA/JPL-Caltech/IPAC
                 </p>
@@ -606,7 +647,7 @@ export default function App() {
                       ? `${step.sublabel.split(" · ").pop()} stacked at ${det.wl_min}–${det.wl_max} µm. The yellow cross marks where the target should be on this date.`
                       : "Pick another wavelength."}
               </p>
-              <p className="mt-1 text-[10px] text-slate-500">{sourceLabel}</p>
+              <p className="mt-1 text-[10px] text-slate-400">{sourceLabel}</p>
             </div>
 
             {pickHint && (
@@ -667,7 +708,7 @@ export default function App() {
               <div className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
                 <span className="text-slate-400">Compare</span>
                 <VisitSelect value={state.t2} epochs={m.epochs} ok={bandEpochs} onChange={(v) => set({ t2: v })} />
-                <span className="text-slate-500">minus</span>
+                <span className="text-slate-400">minus</span>
                 <VisitSelect value={state.t1} epochs={m.epochs} ok={bandEpochs} onChange={(v) => set({ t1: v })} />
                 {!diffOk && <span className="text-xs text-amber-300">Pick two different visits that both have this wavelength.</span>}
                 <span className="ml-auto flex items-center gap-2 text-xs text-slate-400">
@@ -685,6 +726,7 @@ export default function App() {
                 source={selected}
                 title={mapPoint ? `Map point ${formatRa(mapPoint.ra)} ${formatDec(mapPoint.dec)}` : undefined}
                 map={mapOverlay}
+                silent={SILENT}
                 epochs={m.epochs}
                 detectors={m.detectors}
                 band={state.band}
@@ -818,7 +860,7 @@ export default function App() {
           </Section>
 
           <details className="group">
-            <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-300">
+            <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 hover:text-slate-300">
               <ChevronRight size={14} className="transition group-open:rotate-90" /> Image settings
             </summary>
             <div className="mt-3 space-y-3">
@@ -854,39 +896,39 @@ export default function App() {
           </details>
 
           <details className="group">
-            <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-300">
+            <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 hover:text-slate-300">
               <ChevronRight size={14} className="transition group-open:rotate-90" /> Target data
             </summary>
             <dl className="mono mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-              <dt className="text-slate-500">RA</dt>
+              <dt className="text-slate-400">RA</dt>
               <dd>
-                {formatRa(t.pos_now[0])} <span className="text-slate-500">({t.pos_now[0].toFixed(5)}°)</span>
+                {formatRa(t.pos_now[0])} <span className="text-slate-400">({t.pos_now[0].toFixed(5)}°)</span>
               </dd>
-              <dt className="text-slate-500">Dec</dt>
+              <dt className="text-slate-400">Dec</dt>
               <dd>
-                {formatDec(t.pos_now[1])} <span className="text-slate-500">({t.pos_now[1].toFixed(5)}°)</span>
+                {formatDec(t.pos_now[1])} <span className="text-slate-400">({t.pos_now[1].toFixed(5)}°)</span>
               </dd>
-              <dt className="text-slate-500">epoch</dt>
+              <dt className="text-slate-400">epoch</dt>
               <dd>2026.5</dd>
-              <dt className="text-slate-500">motion</dt>
+              <dt className="text-slate-400">motion</dt>
               <dd>
                 {targetPm.toFixed(2)}″/yr = {(targetPm / m.pixel_scale_arcsec).toFixed(2)} px/yr
               </dd>
-              <dt className="text-slate-500">2010→26</dt>
+              <dt className="text-slate-400">2010→26</dt>
               <dd>{separationArcsec(...t.pos_2010, ...t.pos_now).toFixed(0)}″ moved</dd>
             </dl>
-            <p className="mt-2 text-[11px] text-slate-500">{t.source}. Parallax ignored.</p>
+            <p className="mt-2 text-[11px] text-slate-400">{t.source}. Parallax ignored.</p>
           </details>
 
           <details className="group">
-            <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-300">
+            <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 hover:text-slate-300">
               <ChevronRight size={14} className="transition group-open:rotate-90" /> How accurate is this?
             </summary>
             <Accuracy target={m.id} />
           </details>
 
           <details className="group">
-            <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-300">
+            <summary className="flex cursor-pointer list-none items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400 hover:text-slate-300">
               <ChevronRight size={14} className="transition group-open:rotate-90" /> How these images were made
             </summary>
             <p className="mt-3 text-xs leading-relaxed text-slate-400">
@@ -897,7 +939,7 @@ export default function App() {
             </p>
           </details>
 
-          <footer className="mt-auto space-y-1 border-t border-white/10 pt-3 text-[11px] leading-snug text-slate-500">
+          <footer className="mt-auto space-y-1 border-t border-white/10 pt-3 text-[11px] leading-snug text-slate-400">
             <p>{m.provenance.credit}</p>
             <p>
               SPHEREx DR1 doi:{m.provenance.dois.spherex_dr1} · QR3 doi:{m.provenance.dois.spherex_qr3}. {m.provenance.wise}. {m.provenance.gaia}.
@@ -912,9 +954,9 @@ export default function App() {
 function Section({ title, hint, anchor, children }: { title: string; hint?: string; anchor?: string; children: React.ReactNode }) {
   return (
     <section data-tour={anchor}>
-      <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">{title}</h3>
+      <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">{title}</h3>
       {children}
-      {hint && <p className="mt-1.5 text-[11px] leading-snug text-slate-500">{hint}</p>}
+      {hint && <p className="mt-1.5 text-[11px] leading-snug text-slate-400">{hint}</p>}
     </section>
   );
 }
@@ -929,7 +971,7 @@ function Toggle({ label, hint, checked, onChange, disabled }: { label: string; h
       </span>
       <span>
         <span className="block text-sm text-slate-200">{label}</span>
-        {hint && <span className="block text-[11px] leading-snug text-slate-500">{hint}</span>}
+        {hint && <span className="block text-[11px] leading-snug text-slate-400">{hint}</span>}
       </span>
     </label>
   );
@@ -978,7 +1020,7 @@ function MotionBar(p: {
   const gTot = Math.hypot(p.gaia.east, p.gaia.north);
   if (p.expectedPx < 1) {
     return (
-      <p className="mb-1 text-[11px] text-slate-500">
+      <p className="mb-1 text-[11px] text-slate-400">
         Motion: Gaia says {gTot.toFixed(3)}″/yr, under one pixel across these {p.frames} frames, so it can't be measured here.
       </p>
     );
@@ -996,7 +1038,7 @@ function MotionBar(p: {
       )}
       {p.measuring && !p.fit && <span className="text-amber-300">Couldn't find the star in enough frames.</span>}
       {p.measuring && (
-        <span className="text-slate-500">Centroids (pink ×) of this detector's frames{p.frames > 1 ? "" : ""}; the search starts at the Gaia position for each date.</span>
+        <span className="text-slate-400">Centroids (pink ×) of this detector's frames{p.frames > 1 ? "" : ""}; the search starts at the Gaia position for each date.</span>
       )}
     </div>
   );
