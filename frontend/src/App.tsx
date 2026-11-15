@@ -92,7 +92,7 @@ export default function App() {
   const [tab, setTab] = useState<PanelTab>("spectrum");
   const [measure, setMeasure] = useState(false);
   const [pickHint, setPickHint] = useState<string | null>(null);
-  const [tourIdx, setTourIdx] = useState<number | null>(() => (storage.get(TOUR_KEY) || initialUrl.target ? null : 0));
+  const [tourIdx, setTourIdx] = useState<number | null>(() => (storage.get(TOUR_KEY) || initialUrl.target || initialLive ? null : 0)); // a shared link opens straight to its view
   const pending = useRef<TourSetup | null>(null);
   // colour mode
   const [mix, setMix] = useState<Mix>(PRESETS[0].mix);

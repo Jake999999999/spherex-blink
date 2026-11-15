@@ -25,6 +25,12 @@
    "status": "conditional"
   },
   {
+   "id": "r-dra",
+   "name": "R Draconis",
+   "tagline": "A giant star that pulses every 8 months",
+   "status": "conditional"
+  },
+  {
    "id": "nep-lpv",
    "name": "Pulsating red giant (Gaia DR3 2160548942811758720)",
    "tagline": "A giant star that swells and fades",
