@@ -34,6 +34,11 @@ class FetchError(RuntimeError):
     pass
 
 
+class Upstream502Error(FetchError):
+    """Raised immediately when an upstream IRSA service returns HTTP 502 Bad Gateway."""
+    pass
+
+
 def make_client(timeout: float = 120.0) -> httpx.Client:
     return httpx.Client(
         timeout=httpx.Timeout(timeout, connect=30.0),
@@ -52,6 +57,7 @@ def get_with_retry(
     sleep: Callable[[float], None] = time.sleep,
     max_delay: float = 60.0,
     headers: dict | None = None,
+    fail_fast_statuses: set[int] | None = None,
 ) -> bytes:
     """GET with exponential backoff on 5xx/429 and network errors. 206 counts as success (Range)."""
     last: str = ""
@@ -61,6 +67,10 @@ def get_with_retry(
             if r.status_code in (200, 206):
                 return r.content
             last = f"HTTP {r.status_code}"
+            if fail_fast_statuses and r.status_code in fail_fast_statuses:
+                if r.status_code == 502:
+                    raise Upstream502Error(f"{url} returned HTTP 502 (Bad Gateway)")
+                break
             if r.status_code not in RETRY_STATUS:
                 break
         except (httpx.TimeoutException, httpx.TransportError) as e:
@@ -98,7 +108,7 @@ def sia_query(client: httpx.Client, collection: str, ra: float, dec: float, radi
     if key.exists():
         raw = key.read_bytes()
     else:
-        raw = get_with_retry(client, SIA_URL, params=params, **META_RETRY)
+        raw = get_with_retry(client, SIA_URL, params=params, fail_fast_statuses={502}, **META_RETRY)
         key.parent.mkdir(parents=True, exist_ok=True)
         key.write_bytes(raw)
     text = raw.decode("utf-8", errors="replace")

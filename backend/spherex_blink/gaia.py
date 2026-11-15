@@ -13,6 +13,38 @@ from .irsa import CACHE_ROOT, META_RETRY, FetchError, get_with_retry
 
 GAIA_TAP = "https://gea.esac.esa.int/tap-server/tap/sync"
 IRSA_TAP = "https://irsa.ipac.caltech.edu/TAP/sync"
+VIZIER_TAP = "https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync"
+VIZIER_CATALOGS: dict[str, dict] = {
+    "allwise_p3as_psd": {
+        "table": "II/328/allwise",
+        "ra_col": "RAJ2000",
+        "dec_col": "DEJ2000",
+        "cols": {
+            "designation": "AllWISE",
+            "ra": "RAJ2000",
+            "dec": "DEJ2000",
+            "w1mpro": "W1mag",
+            "w2mpro": "W2mag",
+            "ph_qual": "qph",
+            "cc_flags": "ccf",
+            "ext_flg": "ex",
+        },
+    },
+    "fp_psc": {
+        "table": "II/246/out",
+        "ra_col": "RAJ2000",
+        "dec_col": "DEJ2000",
+        "cols": {
+            "ra": "RAJ2000",
+            "dec": "DEJ2000",
+            "j_m": "Jmag",
+            "h_m": "Hmag",
+            "k_m": "Kmag",
+            "ph_qual": "Qflg",
+            "cc_flg": "Cflg",
+        },
+    },
+}
 GAIA_EPOCH = 2016.0
 MJD_J2000 = 51544.5
 DAYS_PER_YEAR = 365.25
@@ -44,12 +76,55 @@ def propagate(ra: float, dec: float, pmra: float, pmdec: float, from_year: float
     return (math.degrees(a) % 360.0, math.degrees(d))
 
 
-def _tap_csv(client: httpx.Client, url: str, adql: str) -> list[dict]:
+def _tap_csv(client: httpx.Client, url: str, adql: str, *, fail_fast_statuses: set[int] | None = None, tries: int | None = None) -> list[dict]:
     params = {"REQUEST": "doQuery", "LANG": "ADQL", "FORMAT": "csv", "QUERY": adql}
     # ESA: two quick tries, then the caller falls back to IRSA's copy of Gaia DR3
-    retry = {"tries": 2, "base_delay": 3.0} if url == GAIA_TAP else META_RETRY
-    raw = get_with_retry(client, url, params=params, **retry)
+    retry = {"tries": tries, "base_delay": 2.0} if tries is not None else ({"tries": 2, "base_delay": 3.0} if url == GAIA_TAP else META_RETRY)
+    raw = get_with_retry(client, url, params=params, fail_fast_statuses=fail_fast_statuses, **retry)
     return list(csv.DictReader(io.StringIO(raw.decode("utf-8", errors="replace"))))
+
+
+def vizier_cone(client: httpx.Client, catalog: str, ra: float, dec: float, radius_arcsec: float, cols: str) -> list[dict]:
+    """Query CDS VizieR TAP mirror for AllWISE ('II/328/allwise') or 2MASS ('II/246/out')."""
+    spec = VIZIER_CATALOGS[catalog]
+    req_cols = [c.strip() for c in cols.split(",") if c.strip()]
+    col_map: dict[str, str] = spec["cols"]
+    viz_cols = [col_map.get(c, c) for c in req_cols]
+    # Select only columns that exist in our VizieR mapping (or pass-through), deduplicated preserving order
+    select_expr = ", ".join(dict.fromkeys(viz_cols))
+    ra_col, dec_col = spec["ra_col"], spec["dec_col"]
+    radius_deg = radius_arcsec / 3600.0
+    adql = (
+        f'SELECT {select_expr} FROM "{spec["table"]}" '
+        f"WHERE 1 = CONTAINS(POINT('ICRS', {ra_col}, {dec_col}), CIRCLE('ICRS', {ra}, {dec}, {radius_deg}))"
+    )
+    rows = _tap_csv(client, VIZIER_TAP, adql, tries=2)
+    out = []
+    for r in rows:
+        mapped = {}
+        for c in req_cols:
+            vc = col_map.get(c, c)
+            if vc in r:
+                mapped[c] = r[vc]
+        out.append(mapped)
+    return out
+
+
+def catalog_cone_with_vizier_fallback(
+    client: httpx.Client, catalog: str, ra: float, dec: float, radius_arcsec: float, cols: str
+) -> list[dict]:
+    """Query IRSA TAP for AllWISE/2MASS, failing over immediately to VizieR TAP on 502/503/504 or timeout."""
+    radius_deg = radius_arcsec / 3600.0
+    adql = (
+        f"SELECT {cols} FROM {catalog} "
+        f"WHERE 1 = CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', {ra}, {dec}, {radius_deg}))"
+    )
+    try:
+        return _tap_csv(client, IRSA_TAP, adql, fail_fast_statuses={502, 503, 504}, tries=1)
+    except (FetchError, httpx.TimeoutException, httpx.TransportError):
+        if catalog in VIZIER_CATALOGS:
+            return vizier_cone(client, catalog, ra, dec, radius_arcsec, cols)
+        raise
 
 
 GATOR = "https://irsa.ipac.caltech.edu/cgi-bin/Gator/nph-query"
@@ -77,7 +152,7 @@ def parse_ipac_table(text: str) -> list[dict]:
 def gator_cone(client: httpx.Client, catalog: str, ra: float, dec: float, radius_arcsec: float, cols: str) -> list[dict]:
     params = {"catalog": catalog, "spatial": "cone", "objstr": f"{ra} {dec}", "radius": str(radius_arcsec),
               "outfmt": "1", "selcols": cols}
-    raw = get_with_retry(client, GATOR, params=params, **META_RETRY)
+    raw = get_with_retry(client, GATOR, params=params, fail_fast_statuses={502, 503, 504}, tries=2, base_delay=2.0)
     return parse_ipac_table(raw.decode("utf-8", errors="replace"))
 
 
@@ -161,9 +236,12 @@ def allwise_source(client: httpx.Client, ra: float, dec: float, radius_arcsec: f
     """Nearest AllWISE catalog source (for objects too faint for Gaia, e.g. WISE 0855)."""
 
     def q():
-        # Gator, not TAP: IRSA's TAP service hung on this table (2026-11-14) while Gator answered in 2 s.
-        rows = gator_cone(client, "allwise_p3as_psd", ra, dec, radius_arcsec,
-                          "designation,ra,dec,w1mpro,w2mpro,w1mjdmean,w2mjdmean")
+        cols = "designation,ra,dec,w1mpro,w2mpro,w1mjdmean,w2mjdmean"
+        try:
+            # Gator is fast when up; fail fast on 502/503/504 so we can fall back to TAP/VizieR
+            rows = gator_cone(client, "allwise_p3as_psd", ra, dec, radius_arcsec, cols)
+        except (FetchError, httpx.TimeoutException, httpx.TransportError):
+            rows = catalog_cone_with_vizier_fallback(client, "allwise_p3as_psd", ra, dec, radius_arcsec, "designation,ra,dec,w1mpro,w2mpro")
         if not rows:
             raise LookupError(f"no AllWISE source near {ra}, {dec}")
         rows.sort(key=lambda r: (float(r["ra"]) - ra) ** 2 + (float(r["dec"]) - dec) ** 2)
@@ -172,9 +250,9 @@ def allwise_source(client: httpx.Client, ra: float, dec: float, radius_arcsec: f
             "designation": r["designation"],
             "ra": float(r["ra"]),
             "dec": float(r["dec"]),
-            "w1": _num(r["w1mpro"]),
-            "w2": _num(r["w2mpro"]),
-            "mjd": _num(r["w2mjdmean"]) or _num(r["w1mjdmean"]),
+            "w1": _num(r.get("w1mpro")),
+            "w2": _num(r.get("w2mpro")),
+            "mjd": _num(r.get("w2mjdmean")) or _num(r.get("w1mjdmean")),
         }
 
     return _cached(f"allwise_{ra:.5f}_{dec:.5f}", q)

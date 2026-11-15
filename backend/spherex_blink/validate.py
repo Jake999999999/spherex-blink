@@ -66,10 +66,10 @@ def _load(tid: str) -> tuple[dict, dict, dict, np.ndarray] | None:
 
 def _catalogue(client: httpx.Client, ra: float, dec: float, radius_arcsec: float) -> tuple[list[dict], list[dict]]:
     def tm():
-        return gaia.gator_cone(client, "fp_psc", ra, dec, radius_arcsec, "ra,dec,j_m,h_m,k_m,ph_qual,cc_flg")
+        return gaia.catalog_cone_with_vizier_fallback(client, "fp_psc", ra, dec, radius_arcsec, "ra,dec,j_m,h_m,k_m,ph_qual,cc_flg")
 
     def aw():
-        return gaia.gator_cone(client, "allwise_p3as_psd", ra, dec, radius_arcsec, "ra,dec,w1mpro,w2mpro,ph_qual,cc_flags,ext_flg")
+        return gaia.catalog_cone_with_vizier_fallback(client, "allwise_p3as_psd", ra, dec, radius_arcsec, "ra,dec,w1mpro,w2mpro,ph_qual,cc_flags,ext_flg")
 
     return (gaia._cached(f"2mass_{ra:.5f}_{dec:.5f}_{radius_arcsec:.0f}", tm), gaia._cached(f"awcat_{ra:.5f}_{dec:.5f}_{radius_arcsec:.0f}", aw))
 

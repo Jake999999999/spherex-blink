@@ -85,6 +85,7 @@ export default function App() {
   const [smooth, setSmooth] = useState(true);
   const [showHelp, setShowHelp] = useState(false);
   const [helpTab, setHelpTab] = useState<HelpTab>("science");
+  const [irsaUpstream502, setIrsaUpstream502] = useState(false);
   const [sourceMode, setSourceMode] = useState<SourceMode>(() => {
     const saved = storage.get("spherex-blink.sourceMode");
     return saved === "browser" || saved === "server" ? saved : "auto";
@@ -767,6 +768,16 @@ export default function App() {
           <p className="truncate text-xs text-slate-400">Watch the infrared sky change, using real data from NASA's SPHEREx telescope</p>
         </div>
         <div className="ml-auto flex items-center gap-2">
+          {irsaUpstream502 && (
+            <span
+              role="status"
+              title="IRSA's live search returned HTTP 502 (Bad Gateway). Showing baked local/mirror datasets instead."
+              className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/35 bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-200"
+            >
+              <TriangleAlert size={12} className="text-amber-300" />
+              IRSA Upstream 502 — Using Offline/Mirror Data
+            </span>
+          )}
           {tourSteps.length > 0 && (
             <button onClick={() => goTour(0)} className="inline-flex items-center gap-1.5 rounded-md border border-sky-400/40 px-3 py-1.5 text-xs font-medium text-sky-200 hover:bg-sky-400/10">
               <Route size={14} /> Guided tour
@@ -825,6 +836,7 @@ export default function App() {
         serverOnline={serverOnline}
         onSwitchMode={updateSourceMode}
         onCheckServer={checkServer}
+        onUpstream502={setIrsaUpstream502}
       />
       <div data-tour="targets">
         <TargetBar targets={[...index, ...liveEntries]} current={m.id} onPick={(id) => set({ target: id })} />

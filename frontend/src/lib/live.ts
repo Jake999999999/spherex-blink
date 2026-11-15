@@ -6,6 +6,7 @@ export interface JobView {
   log: string[];
   error?: string;
   position?: number;
+  upstream_502?: boolean;
 }
 
 export interface FieldRequest {

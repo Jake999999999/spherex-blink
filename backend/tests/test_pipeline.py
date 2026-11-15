@@ -276,3 +276,43 @@ def test_midpoint_handles_ra_wrap():
 
     ra, dec = bake.midpoint((359.99, 10.0), (0.01, 10.0))
     assert min(abs(ra - 0.0), abs(ra - 360.0)) < 1e-6 and dec == pytest.approx(10.0, abs=1e-6)
+
+
+def test_get_with_retry_fails_fast_on_upstream_502():
+    calls = 0
+
+    def handler(_req):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(502, text="Bad Gateway")
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    with pytest.raises(irsa.Upstream502Error, match="502"):
+        irsa.get_with_retry(client, "https://irsa.ipac.caltech.edu/SIA", tries=8, fail_fast_statuses={502}, sleep=lambda _: None)
+    assert calls == 1
+
+
+def test_vizier_tap_fallback_for_allwise_and_2mass():
+    seen_urls: list[str] = []
+    seen_queries: list[str] = []
+
+    def handler(req: httpx.Request):
+        url = str(req.url)
+        seen_urls.append(url)
+        q = req.url.params.get("QUERY", "")
+        seen_queries.append(q)
+        if url.startswith(gaia.IRSA_TAP):
+            return httpx.Response(502, text="Proxy Error")
+        if url.startswith(gaia.VIZIER_TAP) and '"II/328/allwise"' in q:
+            return httpx.Response(200, text="AllWISE,RAJ2000,DEJ2000,W1mag,W2mag\nJ085510.74-071442.5,133.7948,-7.2451,17.8,13.7\n")
+        if url.startswith(gaia.VIZIER_TAP) and '"II/246/out"' in q:
+            return httpx.Response(200, text="RAJ2000,DEJ2000,Jmag,Hmag,Kmag\n133.7948,-7.2451,15.1,14.5,14.2\n")
+        return httpx.Response(404)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    aw = gaia.catalog_cone_with_vizier_fallback(client, "allwise_p3as_psd", 133.795, -7.245, 30.0, "designation,ra,dec,w1mpro,w2mpro")
+    tm = gaia.catalog_cone_with_vizier_fallback(client, "fp_psc", 133.795, -7.245, 30.0, "ra,dec,j_m,h_m,k_m")
+    assert aw == [{"designation": "J085510.74-071442.5", "ra": "133.7948", "dec": "-7.2451", "w1mpro": "17.8", "w2mpro": "13.7"}]
+    assert tm == [{"ra": "133.7948", "dec": "-7.2451", "j_m": "15.1", "h_m": "14.5", "k_m": "14.2"}]
+    assert any("RAJ2000" in q and "DEJ2000" in q and '"II/328/allwise"' in q for q in seen_queries)
+    assert any("RAJ2000" in q and "DEJ2000" in q and '"II/246/out"' in q for q in seen_queries)

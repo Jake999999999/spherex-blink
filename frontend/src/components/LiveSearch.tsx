@@ -28,13 +28,14 @@ interface Props {
   serverOnline?: boolean | null;
   onSwitchMode?: (m: SourceMode) => void;
   onCheckServer?: () => void;
+  onUpstream502?: (active: boolean) => void;
 }
 
 /**
  * "Any spot in the sky": a name or coordinates plus a field size, fetched live from NASA's archives by the
  * local server, processed with the same pipeline as the built-in targets.
  */
-export function LiveSearch({ onReady, autostart, sourceMode = "auto", serverOnline, onSwitchMode, onCheckServer }: Props) {
+export function LiveSearch({ onReady, autostart, sourceMode = "auto", serverOnline, onSwitchMode, onCheckServer, onUpstream502 }: Props) {
   const [text, setText] = useState("");
   const [fov, setFov] = useState(5);
   const [quick, setQuick] = useState(true);
@@ -78,8 +79,11 @@ export function LiveSearch({ onReady, autostart, sourceMode = "auto", serverOnli
   useEffect(() => {
     if (!job || job.status === "done" || job.status === "error" || job.status === "cancelled" || job.status === "unknown") {
       if (job?.status === "done" && pending.current) {
+        onUpstream502?.(false);
         onReady({ id: job.id, ...pending.current });
         pending.current = null;
+      } else if (job?.status === "error" && (job.upstream_502 || /502|Bad Gateway/i.test(job.error ?? ""))) {
+        onUpstream502?.(true);
       }
       if (job && job.status !== "queued" && job.status !== "running") setBusy(false);
       return;
@@ -219,7 +223,11 @@ export function LiveSearch({ onReady, autostart, sourceMode = "auto", serverOnli
               {last ?? "starting…"}
             </>
           ) : job?.status === "error" ? (
-            <span className="text-amber-300">Couldn't build this field: {job.error}</span>
+            <span className="text-amber-300">
+              {job.upstream_502 || /502|Bad Gateway/i.test(job.error ?? "")
+                ? "IRSA's live search returned HTTP 502 (Bad Gateway) — showing offline/mirror baked targets instead."
+                : `Couldn't build this field: ${job.error}`}
+            </span>
           ) : job?.status === "cancelled" ? (
             "Stopped."
           ) : job?.status === "done" ? (

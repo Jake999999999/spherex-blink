@@ -118,6 +118,8 @@ class Jobs:
             out["position"] = list(self.queue).index(jid) + 1 if jid in self.queue else 0
         if "error" in j:
             out["error"] = j["error"]
+        if j.get("upstream_502"):
+            out["upstream_502"] = True
         return out
 
     def cancel(self, jid: str) -> dict:
@@ -208,7 +210,10 @@ class Jobs:
         else:
             j["status"] = "error"
             last = [ln for ln in log if "!!" in ln or "Error" in ln or "error" in ln]
-            j["error"] = (last[-1] if last else (log[-1] if log else "the pipeline failed")).replace("!! ", "")
+            err_msg = (last[-1] if last else (log[-1] if log else "the pipeline failed")).replace("!! ", "")
+            j["error"] = err_msg
+            if "502" in err_msg or "Upstream502Error" in err_msg:
+                j["upstream_502"] = True
             shutil.rmtree(tmp, ignore_errors=True)
 
 
