@@ -641,10 +641,17 @@ export default function App() {
       let gw = 0;
       let gh = 0;
       const delayCs = Math.max(10, Math.round(100 / Math.max(0.5, fps)));
+      const det = bundle.meta.detectors[state.band - 1];
+      const fovArcmin = (bundle.width * bundle.meta.pixel_scale_arcsec) / 60;
+      const footer = `${formatRa(bundle.meta.wcs.crval[0])} ${formatDec(bundle.meta.wcs.crval[1])} · ${fovArcmin.toFixed(1)}′ · D${state.band} ${det.wl_min}–${det.wl_max} µm · ${bundle.meta.pixel_scale_arcsec.toFixed(2)}″/px`;
       for (let i = 0; i < steps.length; i++) {
         setStepIdx(i);
         await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-        const snap = canvasRef.current?.snapshot(`${shortName(bundle.meta.name)} · ${steps[i].label}`);
+        const snap = canvasRef.current?.snapshot({
+          header: `${shortName(bundle.meta.name)} · ${steps[i].label}`,
+          footer,
+          maxW: 480,
+        });
         if (snap) {
           gw = snap.width;
           gh = snap.height;
@@ -663,14 +670,27 @@ export default function App() {
 
   const exportPng = useCallback(() => {
     if (!bundle) return;
+    const m = bundle.meta;
+    const det = m.detectors[state.band - 1];
+    const fovArcmin = (bundle.width * m.pixel_scale_arcsec) / 60;
     const modeLabel = isColour
-      ? PRESETS.find((p) => p.id === presetId)?.name ?? "Colour"
+      ? PRESETS.find((p) => p.id === presetId)?.name ?? `RGB (${mix.r.lo}–${mix.r.hi}/${mix.g.lo}–${mix.g.hi}/${mix.b.lo}–${mix.b.hi} µm)`
       : isDiff
-        ? `${formatMjdMonth(bundle.meta.epochs[state.t2].mjd)} - ${formatMjdMonth(bundle.meta.epochs[state.t1].mjd)}`
+        ? `Difference (${formatMjdMonth(m.epochs[state.t2].mjd)} − ${formatMjdMonth(m.epochs[state.t1].mjd)})`
         : step
           ? step.label
           : "Sky";
-    const snap = canvasRef.current?.snapshot(`${shortName(bundle.meta.name)} · ${modeLabel} · ${formatRa(bundle.meta.wcs.crval[0])} ${formatDec(bundle.meta.wcs.crval[1])}`);
+    const wlLabel = isColour
+      ? `R ${mix.r.lo}–${mix.r.hi} G ${mix.g.lo}–${mix.g.hi} B ${mix.b.lo}–${mix.b.hi} µm`
+      : step?.kind === "wise" && !isDiff
+        ? "WISE"
+        : `D${state.band} ${det.wl_min}–${det.wl_max} µm`;
+    const scaleLabel = isColour && cube ? `${cube.desc.native_scale_arcsec}″/px` : `${m.pixel_scale_arcsec.toFixed(2)}″/px`;
+    const snap = canvasRef.current?.snapshot({
+      header: `${shortName(m.name)} · ${modeLabel}`,
+      footer: `${formatRa(m.wcs.crval[0])} ${formatDec(m.wcs.crval[1])} · ${fovArcmin.toFixed(1)}′ · ${wlLabel} · ${scaleLabel} · SPHEREx Blink`,
+      maxW: 960,
+    });
     if (!snap) return;
     const c = document.createElement("canvas");
     c.width = snap.width;

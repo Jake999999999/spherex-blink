@@ -15,11 +15,17 @@ export interface View {
   cy: number;
 }
 
+export interface SnapshotOptions {
+  header?: string;
+  footer?: string;
+  maxW?: number;
+}
+
 export interface SkyCanvasHandle {
   resetView(): void;
   view(): View;
   redraw(): void;
-  snapshot(label?: string): { width: number; height: number; rgba: Uint8ClampedArray } | null;
+  snapshot(opts?: string | SnapshotOptions): { width: number; height: number; rgba: Uint8ClampedArray } | null;
 }
 
 interface Props {
@@ -178,30 +184,46 @@ export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, o
     },
     view: () => ({ ...viewRef.current }),
     redraw: paint,
-    snapshot: (label?: string) => {
+    snapshot: (opts?: string | SnapshotOptions) => {
       paint();
       const gl = glRef.current;
       const ov = ovRef.current;
       if (!gl || !ov || gl.width === 0 || gl.height === 0) return null;
-      const maxW = 480;
+      const cfg: SnapshotOptions = typeof opts === "string" ? { header: opts } : (opts ?? {});
+      const maxW = cfg.maxW ?? 480;
       const scale = Math.min(1, maxW / gl.width);
       const w = Math.max(1, Math.round(gl.width * scale));
-      const h = Math.max(1, Math.round(gl.height * scale));
+      const imgH = Math.max(1, Math.round(gl.height * scale));
+      const headerH = cfg.header ? 30 : 0;
+      const footerH = cfg.footer ? 24 : 0;
+      const h = imgH + headerH + footerH;
       const off = document.createElement("canvas");
       off.width = w;
       off.height = h;
       const ctx = off.getContext("2d");
       if (!ctx) return null;
-      ctx.drawImage(gl, 0, 0, w, h);
-      ctx.drawImage(ov, 0, 0, w, h);
-      if (label) {
-        ctx.font = "600 12px system-ui, sans-serif";
-        const pad = 8;
-        const tw = ctx.measureText(label).width;
-        ctx.fillStyle = "rgba(3,5,10,0.82)";
-        ctx.fillRect(10, 10, tw + pad * 2, 22);
-        ctx.fillStyle = "#e2e8f0";
-        ctx.fillText(label, 10 + pad, 25);
+      ctx.fillStyle = "#05070b";
+      ctx.fillRect(0, 0, w, h);
+      if (cfg.header) {
+        ctx.fillStyle = "#070b12";
+        ctx.fillRect(0, 0, w, headerH);
+        ctx.fillStyle = "rgba(56, 189, 248, 0.2)";
+        ctx.fillRect(0, headerH - 1, w, 1);
+        ctx.font = w >= 640 ? "600 13px system-ui, sans-serif" : "600 11px system-ui, sans-serif";
+        ctx.fillStyle = "#f1f5f9";
+        ctx.fillText(cfg.header, 10, headerH - 10, w - 20);
+      }
+      ctx.drawImage(gl, 0, headerH, w, imgH);
+      ctx.drawImage(ov, 0, headerH, w, imgH);
+      if (cfg.footer) {
+        const fy = headerH + imgH;
+        ctx.fillStyle = "#070b12";
+        ctx.fillRect(0, fy, w, footerH);
+        ctx.fillStyle = "rgba(56, 189, 248, 0.16)";
+        ctx.fillRect(0, fy, w, 1);
+        ctx.font = w >= 640 ? "11px ui-monospace, Consolas, monospace" : "10px ui-monospace, Consolas, monospace";
+        ctx.fillStyle = "#94a3b8";
+        ctx.fillText(cfg.footer, 10, fy + footerH - 8, w - 20);
       }
       return { width: w, height: h, rgba: ctx.getImageData(0, 0, w, h).data };
     },
