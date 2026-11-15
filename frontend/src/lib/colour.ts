@@ -166,6 +166,36 @@ export function blowOutSaturated(
   return { planes: out, count };
 }
 
+/**
+ * Display-only: a single missing pixel surrounded by data (at least 5 of its 8 neighbours) is filled
+ * with the neighbours' mean, so isolated gaps don't show as dark squares. Larger gaps stay empty.
+ */
+export function fillPinholes(planes: [Float32Array, Float32Array, Float32Array], n: number): [Float32Array, Float32Array, Float32Array] {
+  return planes.map((p) => {
+    const out = new Float32Array(p);
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        const i = y * n + x;
+        if (Number.isFinite(p[i])) continue;
+        let s = 0;
+        let c = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const xx = x + dx;
+            const yy = y + dy;
+            if ((dx || dy) && xx >= 0 && yy >= 0 && xx < n && yy < n && Number.isFinite(p[yy * n + xx])) {
+              s += p[yy * n + xx];
+              c++;
+            }
+          }
+        }
+        if (c >= 5) out[i] = s / c;
+      }
+    }
+    return out;
+  }) as [Float32Array, Float32Array, Float32Array];
+}
+
 export interface ColourLevels {
   black: [number, number, number];
   white: [number, number, number];

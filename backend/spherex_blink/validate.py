@@ -279,11 +279,105 @@ def map_check(meta: dict, spectra: dict, tid: str) -> list[dict]:
     return out
 
 
+FLAG_NAMES = {0: "TRANSIENT", 1: "OVERFLOW", 2: "SUR_ERROR", 6: "NONFUNC", 7: "DICHROIC", 9: "MISSING_DATA", 10: "HOT",
+              11: "COLD", 15: "NONLINEAR", 17: "PERSIST", 19: "OUTLIER", 20: "CROSSTALK", 21: "SOURCE", 22: "GHOST",
+              23: "GHOST_FPA", 24: "GHOST_EXT", 25: "STREAK", 26: "BLOOM", 27: "SNOWBALL", 28: "HALO"}
+
+
+def flag_check(tids: list[str]) -> dict | None:
+    """S1: how often each FLAGS bit is set in the cached cutouts, overall and around bright stars."""
+    from astropy.io import fits
+    from scipy import ndimage
+
+    from . import frames
+
+    tot = np.zeros(32)
+    near = np.zeros(32)
+    n_all = n_near = n_exp = 0
+    for tid in tids:
+        loaded = _load(tid)
+        if not loaded:
+            continue
+        meta = loaded[0]
+        ra, dec = meta["wcs"]["crval"]
+        size = meta["fov_arcmin"] / 60 * 1.5
+        for e in meta["exposures"]:
+            if not e.get("used"):
+                continue
+            path = irsa.cache_path(irsa.cutout_url(e["url"], ra, dec, size))
+            if not path.exists():
+                continue
+            with fits.open(path, memmap=False) as h:
+                f = h["FLAGS"].data.astype(np.int64)
+                img = h["IMAGE"].data - h["ZODI"].data
+            if not np.isfinite(img).any():
+                continue
+            bright = np.isfinite(img) & (img > np.nanpercentile(img, 99.5))
+            ring = ndimage.binary_dilation(bright, iterations=6) & ~bright
+            for b in FLAG_NAMES:
+                on = (f >> b) & 1
+                tot[b] += on.sum()
+                near[b] += on[ring].sum()
+            n_all += f.size
+            n_near += int(ring.sum())
+            n_exp += 1
+    if not n_exp:
+        return None
+    return {
+        "cutouts": n_exp,
+        "pixels": int(n_all),
+        "bits": [
+            {"bit": b, "name": n, "all_pct": 100 * tot[b] / n_all, "near_bright_pct": 100 * near[b] / max(1, n_near), "masked": bool(frames.BAD_MASK >> b & 1)}
+            for b, n in FLAG_NAMES.items()
+        ],
+    }
+
+
+def matched_check(meta: dict, data: np.ndarray, gstars: list[dict]) -> dict | None:
+    """S2: leftover at static field stars in plain vs wavelength-matched difference images,
+    as a percentage of the star's peak, plus the target's signal."""
+    L = meta["layout"]
+    if "matched" not in L:
+        return None
+    E, _, h, w = L["frames"]["shape"]
+
+    def block(name):
+        off = L[name]["offset"] // 4
+        return data[off : off + E * 6 * h * w].reshape(E, 6, h, w)
+
+    plain, match = block("frames"), block("matched")
+    pct = {"plain": [], "matched": []}
+    t = meta["target"]
+    tsig = {"plain": [], "matched": []}
+    for det in range(1, 7):
+        ok = [e for e in range(E) if not meta["epochs"][e]["bands"][det - 1].get("missing")]
+        if len(ok) < 2:
+            continue
+        a, b = ok[0], ok[-1]
+        yr = gaia.mjd_to_year(meta["epochs"][b]["mjd"])
+        for kind, arr in (("plain", plain), ("matched", match)):
+            diff = arr[b, det - 1] - arr[a, det - 1]
+            for st in gstars:
+                if st["g"] is None or st["g"] > 15 or math.hypot(st["pmra"], st["pmdec"]) > 100:
+                    continue
+                ra, dec = gaia.propagate(st["ra"], st["dec"], st["pmra"], st["pmdec"], 2016.0, yr)
+                x, y = (int(round(v)) for v in _to_pix(meta, ra, dec))
+                if not (2 <= x < w - 2 and 2 <= y < h - 2):
+                    continue
+                win = diff[y - 1 : y + 2, x - 1 : x + 2]
+                peak = float(np.nanmax(plain[b, det - 1][y - 1 : y + 2, x - 1 : x + 2]))
+                if np.isfinite(win).all() and peak > 0:
+                    pct[kind].append(100 * float(np.abs(win).max()) / peak)
+    if not pct["plain"]:
+        return None
+    return {k: float(np.median(v)) for k, v in pct.items()} | {"n": len(pct["plain"])}
+
+
 def run(client: httpx.Client | None = None) -> dict:
     own = client is None
     client = client or irsa.make_client()
     try:
-        phot, ast, mot, rep, mp = [], {}, {}, {}, []
+        phot, ast, mot, rep, mp, mtc = [], {}, {}, {}, [], {}
         for tid in TARGET_ORDER:
             loaded = _load(tid)
             if not loaded:
@@ -297,6 +391,9 @@ def run(client: httpx.Client | None = None) -> dict:
                 mot[tid] = m
             rep[tid] = repeatability_check(spectra)
             mp += map_check(meta, spectra, tid)
+            mc = matched_check(meta, data, g["stars"])
+            if mc:
+                mtc[tid] = mc
         by_band = {}
         for b in BANDS:
             r = [x["ratio"] for x in phot if x["band"] == b]
@@ -320,6 +417,8 @@ def run(client: httpx.Client | None = None) -> dict:
                 "median": float(np.median(all_rep)) if all_rep else None,
                 "per_target": {k: (float(np.median(v)) if v else None) for k, v in rep.items()},
             },
+            "flags": flag_check(TARGET_ORDER),
+            "matched_difference": mtc,
             "map_vs_exposures": {
                 "rows": mp,
                 "median_ratio": float(np.median([x["ratio"] for x in mp])) if mp else None,
@@ -394,6 +493,34 @@ def write_markdown(r: dict) -> None:
             "The two are independent SPHEREx products. The shapes agree closely; the map gives less light in the same aperture because its coarser pixels spread the light wider.",
             "",
         ]
+    lines += [
+        "## 6. Artefact flags (S1)",
+        "",
+    ]
+    fl = r.get("flags")
+    if fl:
+        lines += [
+            f"How often each FLAGS bit is set in the {fl['cutouts']} cached cutouts, overall and within 6 pixels of bright stars. "
+            "The masked bits are dropped from every stack and flagged in photometry; SOURCE marks stars themselves and is never masked.",
+            "",
+            "| Bit | Name | All pixels | Near bright stars | Masked |",
+            "|---|---|---|---|---|",
+        ]
+        for b in fl["bits"]:
+            lines.append(f"| {b['bit']} | {b['name']} | {b['all_pct']:.2f}% | {b['near_bright_pct']:.2f}% | {'yes' if b['masked'] else 'no'} |")
+        lines.append("")
+    lines += ["## 7. Difference images: plain vs wavelength-matched (S2)", ""]
+    if r.get("matched_difference"):
+        lines += [
+            "Leftover at static field stars (Gaia G ≤ 15, not moving) in the difference of the first and last visit, as a percentage of the star's brightness (median over stars and detectors). "
+            "Plain frames mix each detector's wavelengths differently per visit; matched frames compare each visit with the all-visit map channel by channel.",
+            "",
+            "| Target | Plain | Matched | Star-detector pairs |",
+            "|---|---|---|---|",
+        ]
+        for k, v in r["matched_difference"].items():
+            lines.append(f"| {k} | {v['plain']:.1f}% | {v['matched']:.1f}% | {v['n']} |")
+        lines += ["", "What remains comes mostly from small differences in image sharpness and alignment between visits (PSF matching, roadmap S6).", ""]
     lines += [
         "## Known limits",
         "",

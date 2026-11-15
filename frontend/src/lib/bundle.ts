@@ -79,6 +79,8 @@ export interface Meta {
   epochs: Epoch[];
   wise: WiseFrame[];
   cube?: CubeDesc | null;
+  /** S2: our own 6.15" 102-channel map from the single exposures */
+  finecube?: (CubeDesc & { dtype?: string }) | null;
   colour_preset?: string;
   colour_hint?: string;
   variable?: boolean;
@@ -87,6 +89,9 @@ export interface Meta {
     frames: { offset: number; shape: [number, number, number, number] };
     variance: { offset: number; shape: [number, number, number, number] };
     wise: { offset: number; shape: [number, number, number] };
+    /** S2: wavelength-matched frames (each visit minus the all-visit map, channel by channel) */
+    matched?: { offset: number; shape: [number, number, number, number] };
+    matched_variance?: { offset: number; shape: [number, number, number, number] };
     bytes: number;
   };
   provenance: {
@@ -131,6 +136,7 @@ export interface Bundle {
   gaia: { ref_year: number; stars: GaiaStar[] };
   spectra: Spectra | null; // per-exposure photometry (M2 bundles)
   cube: Cube | null; // 102-channel all-sky map window (M5 bundles)
+  finecube: Cube | null; // our 6.15" map (S2 bundles)
   width: number;
   height: number;
 }
@@ -143,12 +149,19 @@ export async function loadIndex(fetchFn: typeof fetch = fetch): Promise<IndexEnt
   return (await r.json()).targets as IndexEntry[];
 }
 
-export function parseBundle(meta: Meta, buf: ArrayBuffer, gaia: Bundle["gaia"], spectra: Spectra | null = null, cube: Cube | null = null): Bundle {
+export function parseBundle(
+  meta: Meta,
+  buf: ArrayBuffer,
+  gaia: Bundle["gaia"],
+  spectra: Spectra | null = null,
+  cube: Cube | null = null,
+  finecube: Cube | null = null,
+): Bundle {
   if (buf.byteLength !== meta.layout.bytes) {
     throw new Error(`frames.bin is ${buf.byteLength} bytes, meta says ${meta.layout.bytes}`);
   }
   const [, , h, w] = meta.layout.frames.shape;
-  return { meta, data: new Float32Array(buf), gaia, spectra, cube, width: w, height: h };
+  return { meta, data: new Float32Array(buf), gaia, spectra, cube, finecube, width: w, height: h };
 }
 
 const isJson = (r: Response | null) => !!r && r.ok && (r.headers.get("content-type") ?? "").includes("json");
@@ -171,7 +184,16 @@ export async function loadBundle(id: string, fetchFn: typeof fetch = fetch): Pro
     const c = await fetchFn(`${base}/${meta.cube.file}`).catch(() => null);
     if (isBinary(c)) cube = parseCube(meta.cube, await c!.arrayBuffer());
   }
-  return parseBundle(meta, await b.arrayBuffer(), await g.json(), spectra, cube);
+  let finecube: Cube | null = null;
+  if (meta.finecube?.file) {
+    const f = await fetchFn(`${base}/${meta.finecube.file}`).catch(() => null);
+    if (isBinary(f)) {
+      const raw = await f!.arrayBuffer();
+      const asF32 = meta.finecube.dtype === "float16" ? float16ToFloat32(new Uint16Array(raw)).buffer : raw;
+      finecube = parseCube(meta.finecube, asF32 as ArrayBuffer);
+    }
+  }
+  return parseBundle(meta, await b.arrayBuffer(), await g.json(), spectra, cube, finecube);
 }
 
 const planeSize = (b: Bundle) => b.width * b.height;
@@ -186,6 +208,28 @@ export function framePlane(b: Bundle, epoch: number, detector: number): Float32A
 export function variancePlane(b: Bundle, epoch: number, detector: number): Float32Array {
   const n = planeSize(b);
   const start = b.meta.layout.variance.offset / 4 + (epoch * 6 + (detector - 1)) * n;
+  return b.data.subarray(start, start + n);
+}
+
+/** IEEE half floats (little-endian, as numpy writes them) -> float32. */
+export function float16ToFloat32(h: Uint16Array): Float32Array {
+  const out = new Float32Array(h.length);
+  for (let i = 0; i < h.length; i++) {
+    const v = h[i];
+    const s = v & 0x8000 ? -1 : 1;
+    const e = (v >> 10) & 0x1f;
+    const f = v & 0x3ff;
+    out[i] = e === 0 ? s * 2 ** -14 * (f / 1024) : e === 31 ? (f ? NaN : s * Infinity) : s * 2 ** (e - 15) * (1 + f / 1024);
+  }
+  return out;
+}
+
+/** Wavelength-matched frame (S2) for a visit and detector, or null for bundles baked before S2. */
+export function matchedPlane(b: Bundle, epoch: number, detector: number): Float32Array | null {
+  const m = b.meta.layout.matched;
+  if (!m) return null;
+  const n = b.width * b.height;
+  const start = m.offset / 4 + (epoch * 6 + (detector - 1)) * n;
   return b.data.subarray(start, start + n);
 }
 

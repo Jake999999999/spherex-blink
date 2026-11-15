@@ -22,7 +22,7 @@ Status: M1 code built (2026-11-14); see PLAN.md status line. `uv run python -m s
 - **Never show simulated data as real.** No automatic synthetic fallback. Anything simulated carries the `SIMULATED` watermark and badge. Every view shows its data source.
 - Don't call the targets "NASA benchmarks" or the app a NASA product.
 - Ask the owner before: fetching more data than the M1 set (cutouts are ~4 MB each; a target is ~1.5 GB of transfer), installing anything, pushing, making the repo public.
-- Commit `frontend/public/benchmarks/` (≤ 4 MB per target, ≤ 20 MB total). Never commit `backend/cache/` or raw FITS.
+- Commit `frontend/public/benchmarks/` (≤ 5 MB per target since S2 added the 6.15″ map and matched frames; ≤ 20 MB total). Never commit `backend/cache/` or raw FITS.
 
 ## Gotchas (all checked against live IRSA, see PLAN.md §2)
 

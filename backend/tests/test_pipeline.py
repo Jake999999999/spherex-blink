@@ -238,3 +238,18 @@ def test_validate_zero_points_give_vega_like_fluxes():
     # a mag-0 star has the zero-point flux; mag 10 is 1e-4 of it
     c, w, f0 = validate.BANDS["Ks"]
     assert f0 * 10 ** (-0.4 * 10) * 1000 == pytest.approx(66.67, rel=1e-3)
+
+
+def test_cosmic_ray_and_artefact_bits_are_masked():
+    for bit in (0, 7, 17, 20, 22, 25, 26, 27, 28):  # TRANSIENT, DICHROIC, PERSIST, CROSSTALK, GHOST, STREAK, BLOOM, SNOWBALL, HALO
+        assert frames.BAD_MASK & (1 << bit)
+    # a cosmic-ray hit (TRANSIENT) in one exposure must not reach the stack
+    good = np.ones((5, 5), bool)
+    flags = np.zeros((5, 5), np.int64)
+    flags[2, 2] = 1 << 0
+    good &= (flags & frames.BAD_MASK) == 0
+    hit = np.ones((5, 5)) * 10
+    hit[2, 2] = 1e4
+    a = np.where(good, hit, np.nan)
+    m, _, n = frames.stack([a, np.full((5, 5), 10.0)], [np.ones((5, 5)), np.ones((5, 5))])
+    assert m[2, 2] == pytest.approx(10.0) and n[2, 2] == 1

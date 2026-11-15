@@ -18,7 +18,12 @@ PIXEL_SCALE_ARCSEC = 6.15
 
 # FLAGS bits that make a pixel unusable (PLAN.md D13). SOURCE (21) is deliberately NOT here:
 # it is set on every star.
-BAD_BITS = (1, 2, 6, 9, 10, 11, 15, 19)
+#
+# S1 (2026-11-15): measured over 1,901 cached cutouts, then added TRANSIENT (0, cosmic rays: 1.1% of
+# pixels), DICHROIC (7: 0.8%), PERSIST (17: 0.55%), CROSSTALK (20), GHOST* (22-24), STREAK (25),
+# BLOOM (26), SNOWBALL (27) and HALO (28: 2.3% overall, 2.8% near bright stars). All are artefacts that
+# can fake a one-off brightening; together they cost about 5% of pixels. Table in docs/VALIDATION.md.
+BAD_BITS = (0, 1, 2, 6, 7, 9, 10, 11, 15, 17, 19, 20, 22, 23, 24, 25, 26, 27, 28)
 BAD_MASK = sum(1 << b for b in BAD_BITS)
 OVERFLOW_BIT = 1
 
@@ -117,6 +122,7 @@ class Exposure2D:
     mjd: float
     wavelength_um: float | None  # at the cutout centre
     wave_wcs: WCS | None = None  # per-pixel (wavelength, bandwidth) lookup
+    wave: np.ndarray | None = None  # wavelength (µm) at every pixel of the cutout
 
 
 def load_exposure(path, subtract_background: bool = True) -> Exposure2D:
@@ -143,7 +149,15 @@ def load_exposure(path, subtract_background: bool = True) -> Exposure2D:
     overflow = ((flags >> OVERFLOW_BIT) & 1).astype(bool) | ~np.isfinite(img)
     if subtract_background and good.sum() > 20:
         sci = sci - robust_background(sci[good])
-    return Exposure2D(sci, var, good, overflow, wcs, det, mjd, wl, ww)
+    wave = None
+    if ww is not None:
+        try:
+            ny, nx = img.shape
+            yy, xx = np.mgrid[0:ny, 0:nx]
+            wave = np.asarray(ww.pixel_to_world_values(xx.ravel(), yy.ravel())[0], float).reshape(ny, nx)
+        except Exception:  # noqa: BLE001
+            wave = None
+    return Exposure2D(sci, var, good, overflow, wcs, det, mjd, wl, ww, wave)
 
 
 def robust_background(values: np.ndarray, iters: int = 5, k: float = 3.0) -> float:

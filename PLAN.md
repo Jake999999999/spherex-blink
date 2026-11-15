@@ -92,7 +92,7 @@ What an "epoch frame" is (the spec got this wrong): within a 5–8′ field one 
 - **102-channel cube** (M3): range-read a window of the DR1 all-sky cube tile. It is a time average at 12.88″/px, so it drives the wavelength scrubber and RGB mixer, not the blink.
 - **Gaia overlay**: positions propagated from 2016.0 to each frame's date (proper motion; parallax ignored, stated in the UI).
 
-Bundle per target (`frontend/public/benchmarks/<id>/`): `meta.json` (WCS, epochs, MJD ranges, exposure counts, source collections, file list of the IRSA exposures used, pipeline version, fetch date), `frames.bin` (float32), `wise.bin`, `spectra.json`, `gaia.json`. **Limits: ≤ 4 MB per target, ≤ 20 MB for all.** Raw cutouts go to `backend/cache/` (gitignored, can reach several GB; ask before fetching more than the M1 set).
+Bundle per target (`frontend/public/benchmarks/<id>/`): `meta.json` (WCS, epochs, MJD ranges, exposure counts, source collections, file list of the IRSA exposures used, pipeline version, fetch date), `frames.bin` (float32), `wise.bin`, `spectra.json`, `gaia.json`. **Limits: ≤ 5 MB per target (raised from 4 MB for the S2 products), ≤ 20 MB for all.** Raw cutouts go to `backend/cache/` (gitignored, can reach several GB; ask before fetching more than the M1 set).
 
 Fetching rules: 4 concurrent requests, retry on 503/timeout with backoff (5 tries), cache every cutout on disk keyed by URL, keep only the four image HDUs + wavelength at centre (drop the EPSF table after reading), resumable. One target ≈ 400 cutouts ≈ 1.5 GB transfer ≈ 15–30 min.
 
@@ -274,6 +274,12 @@ Fit SPHEREx's per-exposure PSF (`EPSF`, today discarded) instead of summing an a
 - Outside review: IRSA helpdesk and, if possible, SPHEREx science-team members; their findings go in the build log.
 
 Order of work: S1 → S2 → S3 → S4 → S5 → S6 → S7 (S7's review last, once there is something solid to review).
+
+Progress (2026-11-15):
+- **S1 done.** Bit frequencies measured over 1,901 cutouts; 11 artefact bits added to the mask (≈5% of pixels). Repeatability 2.4% → 2.3%; Barnard's motion +0.3% → +1.3% (HALO masks part of its wings), still well inside 10%.
+- **S2 done.** Matched frames: static-star leftover in differences 12.4→6.6% (Eps Indi B), 13.0→8.5% (pole LPV), 15.1→7.3% (WISE 0855), 7.0→6.3% (Barnard), 8.4→8.0% (RW Aur). A sky offset and a smooth gradient between visits are removed (a tinted haze showed in the first version). The 6.15″ map has every channel at every pixel; isolated empty pixels are filled for display only. Bundles: 13 MB total, Barnard 4.5 MB (per-target guideline raised to 5 MB).
+- **S5 partly done.** FITS and ECSV export with an astropy round-trip test, CITATION.cff, CI workflow. **SAMP is blocked on hosting:** SAMP sends other programs a URL to load, and in-browser exports have none. With hosting, the bake can also write per-visit FITS files that SAMP can point to.
+- Next: S3 (honest error bars), S4 (injection–recovery), S6 (PSF photometry).
 
 ### Last: hosting and demo kit (old "step 1")
 GitHub Pages from the owner's public repo, a 30-second video following the tour, slides, the challenge-statement mapping, and target swaps (RW Aur → Teegarden's Star; keep WISE 0855 as the "why it can't be seen" lesson).

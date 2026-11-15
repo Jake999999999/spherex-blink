@@ -124,3 +124,16 @@ describe("honest colour", () => {
     expect(windowShares([1.0], [5], mix)).toBeNull();
   });
 });
+
+import { fillPinholes } from "../src/lib/colour";
+
+test("pinholes are filled, bigger gaps are not", () => {
+  const n = 6;
+  const p = () => new Float32Array(n * n).fill(2);
+  const planes: [Float32Array, Float32Array, Float32Array] = [p(), p(), p()];
+  planes[0][2 * n + 2] = NaN; // single hole
+  for (const [y, x] of [[4, 4], [4, 5], [5, 4], [5, 5]]) planes[1][y * n + x] = NaN; // a 2x2 gap in a corner
+  const out = fillPinholes(planes, n);
+  expect(out[0][2 * n + 2]).toBe(2);
+  expect(Number.isNaN(out[1][5 * n + 5])).toBe(true);
+});

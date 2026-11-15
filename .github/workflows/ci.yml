@@ -1,0 +1,30 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+      - name: Frontend install
+        working-directory: frontend
+        run: bun install --frozen-lockfile
+      - name: Frontend tests
+        working-directory: frontend
+        run: bun test
+      - name: Typecheck
+        working-directory: frontend
+        run: bun run typecheck
+      - name: Build
+        working-directory: frontend
+        run: bun run build
+
+      - uses: astral-sh/setup-uv@v5
+      - name: Pipeline tests (no network; uses bun for the export round-trip test)
+        working-directory: backend
+        run: uv run --python 3.12 pytest -q

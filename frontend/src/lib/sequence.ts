@@ -1,6 +1,6 @@
 // What the blink cycles through, and which texture layer each step uses.
 // Texture layers: SPHEREx epoch e, detector d -> e*6 + (d-1); WISE frame i -> E*6 + i.
-import { bandAvailable, framePlane, wiseForDetector, wisePlane, type Bundle } from "./bundle";
+import { bandAvailable, framePlane, matchedPlane, wiseForDetector, wisePlane, type Bundle } from "./bundle";
 import { formatMjdRange } from "./astro";
 
 export interface Step {
@@ -14,6 +14,8 @@ export interface Step {
 
 export const layerOf = (epoch: number, detector: number) => epoch * 6 + (detector - 1);
 export const wiseLayer = (b: Bundle, i: number) => b.meta.epochs.length * 6 + i;
+export const matchedLayer = (b: Bundle, epoch: number, detector: number) =>
+  b.meta.epochs.length * 6 + b.meta.wise.length + epoch * 6 + (detector - 1);
 
 /**
  * Display-only fill for saturated star cores. A saturated pixel has no value (NaN), which would draw
@@ -62,6 +64,8 @@ export function allPlanes(b: Bundle): Float32Array[] {
   const planes: Float32Array[] = [];
   for (let e = 0; e < b.meta.epochs.length; e++) for (let d = 1; d <= 6; d++) planes.push(fillSaturated(framePlane(b, e, d), b.width, b.height));
   for (let i = 0; i < b.meta.wise.length; i++) planes.push(wisePlane(b, i));
+  // S2 matched frames after the WISE ones (no saturated-core fill: these are differences)
+  if (b.meta.layout.matched) for (let e = 0; e < b.meta.epochs.length; e++) for (let d = 1; d <= 6; d++) planes.push(matchedPlane(b, e, d)!);
   return planes;
 }
 

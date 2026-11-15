@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RotateCcw, Compass, Route, Keyboard, TriangleAlert, Activity, ChevronRight } from "lucide-react";
+import { RotateCcw, Compass, Route, Keyboard, TriangleAlert, Activity, ChevronRight, Download } from "lucide-react";
+import { buildFits, card, download, longCards, wcsCards } from "./lib/fitsio";
 import { GAIA_G_LIMIT, SkyCanvas, formatHover, type HoverInfo, type SkyCanvasHandle } from "./components/SkyCanvas";
 import { SpectrumPanel, type MapOverlay, type PanelTab } from "./components/SpectrumPanel";
 import { ColourMixer } from "./components/ColourMixer";
 import { Accuracy } from "./components/Accuracy";
-import { PRESETS, blowOutSaturated, colourLevels, mainToCube, mapSpectrum, mapSpectrumCaveat, whyColour, windowMean, windowShares, type Mix } from "./lib/colour";
+import { PRESETS, blowOutSaturated, colourLevels, fillPinholes, mainToCube, mapSpectrum, mapSpectrumCaveat, whyColour, windowMean, windowShares, type Mix } from "./lib/colour";
 import { ColourIntro } from "./components/ColourIntro";
 import { Tour } from "./components/Tour";
 import { availableSteps, type TourContext, type TourSetup } from "./lib/tour";
-import { framePlane, loadBundle, loadIndex, shortName, wisePlane, type Bundle, type IndexEntry } from "./lib/bundle";
+import { framePlane, loadBundle, loadIndex, matchedPlane, shortName, wisePlane, type Bundle, type IndexEntry } from "./lib/bundle";
 import { TargetBar } from "./components/TargetBar";
 import { Timeline } from "./components/Timeline";
 import { WavelengthPicker } from "./components/WavelengthPicker";
-import { blinkSteps, epochsWithBand, layerOf, type Step } from "./lib/sequence";
+import { blinkSteps, epochsWithBand, layerOf, matchedLayer, type Step } from "./lib/sequence";
 import { diffLimit, levelsFor, subtract } from "./lib/stretch";
 import { DEFAULT_STATE, parseState, serializeState, type ViewState } from "./lib/urlState";
 import { COLORMAPS, COLORMAP_LABELS, buildLut, type ColormapName } from "./gl/colormaps";
@@ -89,6 +90,7 @@ export default function App() {
   const pending = useRef<TourSetup | null>(null);
   // colour mode
   const [mix, setMix] = useState<Mix>(PRESETS[0].mix);
+  const [colourSource, setColourSource] = useState<"fine" | "archive">("fine");
   const [presetId, setPresetId] = useState<string | null>(PRESETS[0].id);
   const [mapPoint, setMapPoint] = useState<{ x: number; y: number; mx: number; my: number; ra: number; dec: number } | null>(null);
   const frameWant = useRef<TourSetup["frame"] | null>(null);
@@ -185,6 +187,10 @@ export default function App() {
   const diffOk = bundle && bandEpochs.includes(state.t1) && bandEpochs.includes(state.t2) && state.t1 !== state.t2;
   const diffData = useMemo(() => {
     if (!bundle || !diffOk) return null;
+    // S2: wavelength-matched frames when the bundle has them, so a star's colour can't fake a change
+    const m2 = matchedPlane(bundle, state.t2, state.band);
+    const m1 = matchedPlane(bundle, state.t1, state.band);
+    if (m2 && m1) return subtract(m2, m1);
     return subtract(framePlane(bundle, state.t2, state.band), framePlane(bundle, state.t1, state.band));
   }, [bundle, diffOk, state.t1, state.t2, state.band]);
   const limit = useMemo(() => (diffData ? diffLimit(diffData, diffPct) : 1), [diffData, diffPct]);
@@ -194,7 +200,9 @@ export default function App() {
   isDiffRef.current = isDiff;
   const levels = step?.kind === "wise" && wiseLevels ? wiseLevels : spxLevels;
 
-  const cube = bundle?.cube ?? null;
+  const hasMatched = !!bundle?.meta.layout.matched;
+  // Colour from our own 6.15" map (twice as sharp) unless the visitor picks NASA's archive map
+  const cube = (colourSource === "fine" ? bundle?.finecube : null) ?? bundle?.cube ?? null;
   const isColour = state.mode === "colour" && !!cube;
   // One brightness scale for all three colours ("true ratios"): a colour then means more light at that
   // wavelength. Black at the sky level (median), white near the brightest star; the renderer stretches
@@ -204,7 +212,8 @@ export default function App() {
     const raw = [windowMean(cube, mix.r), windowMean(cube, mix.g), windowMean(cube, mix.b)] as [Float32Array, Float32Array, Float32Array];
     const lv = colourLevels(raw, 50, 99.0, "physical");
     const blown = blowOutSaturated(raw, cube.n, lv.white);
-    return { planes: { planes: blown.planes, n: cube.n }, levels: lv, blownOut: blown.count };
+    blown.planes = fillPinholes(blown.planes, cube.n);
+    return { planes: { planes: blown.planes, n: cube.n }, raw, levels: lv, blownOut: blown.count };
   }, [cube, mix, state.mode]);
   const colourPlanes = colourView?.planes ?? null;
   const colourLv = colourView?.levels ?? null;
@@ -216,8 +225,8 @@ export default function App() {
       isColour && colourLv && bundle && cube
         ? { ...colourLv, cubeScale: (bundle.width * bundle.meta.pixel_scale_arcsec) / (cube.n * cube.desc.pixel_scale_arcsec) }
         : undefined,
-    layerA: isDiff ? layerOf(state.t2, state.band) : (step?.layer ?? 0),
-    layerB: isDiff ? layerOf(state.t1, state.band) : 0,
+    layerA: isDiff ? (hasMatched ? matchedLayer(bundle!, state.t2, state.band) : layerOf(state.t2, state.band)) : (step?.layer ?? 0),
+    layerB: isDiff ? (hasMatched ? matchedLayer(bundle!, state.t1, state.band) : layerOf(state.t1, state.band)) : 0,
     black: levels.black,
     white: levels.white,
     limit,
@@ -419,6 +428,74 @@ export default function App() {
     if (!shares) return selected ? "Too bright (saturated) or too faint in these windows to say what colour it really is." : null;
     return whyColour(shares, mix, REFERENCE_BANDS);
   }, [isColour, selected, bundle, mapOverlay, mix]);
+
+  // S5: save what's on screen as FITS (raw values, never the display-only fills), with WCS and provenance
+  const exportFits = useCallback(() => {
+    if (!bundle) return;
+    const m = bundle.meta;
+    const common = [
+      card("ORIGIN", "SPHEREx Blink"),
+      card("OBJECT", shortName(m.name)),
+      card("RADESYS", "ICRS"),
+      card("REFERENC", "doi:10.26131/IRSA678 doi:10.26131/IRSA662"),
+      ...longCards("COMMENT", `${m.provenance.credit} Pipeline ${m.provenance.pipeline}, baked ${m.provenance.baked_utc}.`),
+    ];
+    let data: Float32Array;
+    let axes: number[];
+    let wcs = m.wcs;
+    let extra: string[] = [];
+    let name = `${m.id}`;
+    if (isColour && cube && colourView) {
+      const n = cube.n;
+      data = new Float32Array(3 * n * n);
+      colourView.raw.forEach((pl, k) => data.set(pl, k * n * n));
+      axes = [n, n, 3];
+      wcs = cube.desc.wcs;
+      extra = [
+        card("TELESCOP", "SPHEREx"),
+        card("BUNIT", "MJy/sr"),
+        card("PLANE1", `red ${mix.r.lo}-${mix.r.hi} um`),
+        card("PLANE2", `green ${mix.g.lo}-${mix.g.hi} um`),
+        card("PLANE3", `blue ${mix.b.lo}-${mix.b.hi} um`),
+        card("MJD-BEG", cube.desc.mjd_min ?? 0),
+        card("MJD-END", cube.desc.mjd_max ?? 0),
+        ...longCards("COMMENT", `Mean of the 102-channel map's channels inside each window. ${cube.desc.note}`),
+      ];
+      name += "-colour";
+    } else if (isDiff && diffData) {
+      data = diffData;
+      axes = [bundle.width, bundle.height];
+      extra = [
+        card("TELESCOP", "SPHEREx"),
+        card("BUNIT", "MJy/sr"),
+        card("DETECTOR", state.band),
+        card("WAVEMIN", m.detectors[state.band - 1].wl_min, "[um]"),
+        card("WAVEMAX", m.detectors[state.band - 1].wl_max, "[um]"),
+        card("MJD-T2", m.epochs[state.t2].mjd, "later visit"),
+        card("MJD-T1", m.epochs[state.t1].mjd, "earlier visit"),
+        ...longCards("COMMENT", hasMatched ? "Later minus earlier visit, matched by wavelength: each visit minus the all-visit map, channel by channel, sky gradient removed." : "Later minus earlier visit stack."),
+      ];
+      name += `-diff-v${state.t2 + 1}-v${state.t1 + 1}-d${state.band}`;
+    } else if (step) {
+      const wise = step.kind === "wise";
+      data = wise ? wisePlane(bundle, step.layer - m.epochs.length * 6) : framePlane(bundle, step.epoch, state.band);
+      axes = [bundle.width, bundle.height];
+      extra = wise
+        ? [card("TELESCOP", "WISE"), card("BUNIT", "DN"), card("MJD-AVG", step.mjd), ...longCards("COMMENT", `AllWISE atlas image resampled to the SPHEREx grid. ${m.provenance.wise}.`)]
+        : [
+            card("TELESCOP", "SPHEREx"),
+            card("BUNIT", "MJy/sr"),
+            card("DETECTOR", state.band),
+            card("WAVEMIN", m.detectors[state.band - 1].wl_min, "[um]"),
+            card("WAVEMAX", m.detectors[state.band - 1].wl_max, "[um]"),
+            card("MJD-AVG", step.mjd),
+            card("NEXPOSUR", m.epochs[step.epoch].bands[state.band - 1].n, "exposures stacked"),
+            ...longCards("COMMENT", "Inverse-variance stack of zodi-subtracted single exposures, resampled north-up."),
+          ];
+      name += wise ? "-wise2010" : `-v${step.epoch + 1}-d${state.band}`;
+    } else return;
+    download(`${name}.fits`, buildFits(axes, data, [...wcsCards(wcs), ...common, ...extra]), "application/fits");
+  }, [bundle, isColour, cube, colourView, mix, isDiff, diffData, state.band, state.t1, state.t2, hasMatched, step]);
 
   const motion = useMemo(() => {
     if (!bundle || !selected) return null;
@@ -714,6 +791,10 @@ export default function App() {
               <OverlayBtn active={smooth} onClick={() => setSmooth((s) => !s)} title="Smooth display vs. the raw 6.15″ pixels (P)">
                 {smooth ? "Smooth" : "Pixels"}
               </OverlayBtn>
+              <OverlayBtn active={false} onClick={exportFits} title="Save this image as FITS (raw values, sky coordinates, provenance)">
+                <Download size={13} />
+                <span className="ml-1">FITS</span>
+              </OverlayBtn>
               <OverlayBtn active={false} onClick={() => canvasRef.current?.resetView()} title="Reset zoom (R)">
                 <RotateCcw size={13} />
               </OverlayBtn>
@@ -750,6 +831,11 @@ export default function App() {
                 <span className="text-slate-400">minus</span>
                 <VisitSelect value={state.t1} epochs={m.epochs} ok={bandEpochs} onChange={(v) => set({ t1: v })} />
                 {!diffOk && <span className="text-xs text-amber-300">Pick two different visits that both have this wavelength.</span>}
+                {hasMatched && (
+                  <span className="text-xs text-slate-400" title="Each visit is compared wavelength by wavelength, so a star's colour can't make it look brighter or fainter.">
+                    matched by wavelength
+                  </span>
+                )}
                 <span className="ml-auto flex items-center gap-2 text-xs text-slate-400">
                   <span className="h-2.5 w-16 rounded" style={{ background: "linear-gradient(90deg,#a5f3fc,#22d3ee,#085978,#060a10,#7c4206,#f59e0b,#fee68a)" }} />
                   fainter · same · brighter
@@ -865,6 +951,26 @@ export default function App() {
                   </button>
                 ))}
               </div>
+              {bundle.finecube && bundle.cube && (
+                <div className="mb-3 grid grid-cols-2 gap-1 rounded-lg bg-white/[0.04] p-1 text-xs">
+                  {(
+                    [
+                      ["fine", "Sharper map", "our map from the single exposures, 6.15″ pixels"],
+                      ["archive", "NASA map", "SPHEREx's published all-sky map, 12.9″ pixels"],
+                    ] as const
+                  ).map(([v, l, d]) => (
+                    <button
+                      key={v}
+                      onClick={() => setColourSource(v)}
+                      aria-pressed={colourSource === v}
+                      title={d}
+                      className={`rounded-md py-1.5 ${colourSource === v ? "bg-white/10 text-white" : "text-slate-400"}`}
+                    >
+                      {l}
+                    </button>
+                  ))}
+                </div>
+              )}
               <ColourMixer
                 mix={mix}
                 detectors={m.detectors}

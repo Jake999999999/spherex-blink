@@ -19,13 +19,14 @@ import numpy as np
 
 from . import __version__, frames, gaia, irsa, photometry, wise
 from . import cube as cubemap
+from . import matched as matchedmod
 from .targets import TARGETS, Target
 
 OUT_ROOT = Path(__file__).resolve().parents[2] / "frontend" / "public" / "benchmarks"
 MIN_PER_CELL = 3
 WISE_YEAR = 2010.4
 NOW_YEAR = 2026.5
-MAX_BUNDLE_BYTES = 4 * 1024 * 1024
+MAX_BUNDLE_BYTES = 5 * 1024 * 1024
 
 
 TARGET_ORDER = ["barnard", "eps-ind-b", "nep-lpv", "rw-aur", "wise-0855"]
@@ -212,6 +213,7 @@ def bake(target_id: str, client: httpx.Client | None = None, out_root: Path = OU
         urls = [irsa.cutout_url(e.url, cra, cdec, size_deg) for e in exps]
         paths = irsa.fetch_many(client, urls, progress=_progress)
 
+        wave_of: list[np.ndarray] = []
         loaded: list[tuple[irsa.Exposure, frames.Exposure2D, np.ndarray, np.ndarray]] = []
         exp_meta = []
         for e, u in zip(exps, urls):
@@ -238,8 +240,15 @@ def bake(target_id: str, client: httpx.Client | None = None, out_root: Path = OU
             entry["used"] = True
             exp_meta.append(entry)
             loaded.append((e, ex, img, var))
+            # wavelength at every grid pixel, for the wavelength-matched stacks (PLAN.md S2)
+            if ex.wave is not None:
+                wl_grid, _, _ = frames.resample(ex.wave, np.ones_like(ex.wave), np.isfinite(ex.wave), ex.wcs, grid, shape)
+            else:
+                wl_grid = np.full(shape, np.nan, np.float32)
+            wave_of.append(wl_grid)
 
         groups = frames.group_epochs([e.mjd for e, *_ in loaded])
+        assert len(wave_of) == len(loaded)
         E = len(groups)
         if E < 2:
             raise RuntimeError(f"{t.id}: only {E} usable visit(s); need 2")
@@ -293,8 +302,40 @@ def bake(target_id: str, client: httpx.Client | None = None, out_root: Path = OU
             print(f"  ! no colour cube: {err}", flush=True)
             cube_desc = {"missing": str(err)}
 
+        # S2: per-visit per-channel stacks -> wavelength-matched frames + our own 6.15" 102-channel map
+        chans = matchedmod.channels_from_cube(cube_desc if cube_arr is not None else None)
+        visits_in = [[(loaded[i][0].detector, loaded[i][2], loaded[i][3], wave_of[i]) for i in g] for g in groups]
+        mres = matchedmod.build(visits_in, chans, shape)
+        print(f"  matched: {mres.coverage}", flush=True)
+
         out = out_root / t.id
         out.mkdir(parents=True, exist_ok=True)
+        fine16 = np.where(np.isfinite(mres.fine), mres.fine, np.nan).astype("<f2")
+        (out / "finecube.bin").write_bytes(fine16.tobytes())
+        fine_desc = {
+            "file": "finecube.bin",
+            "dtype": "float16",
+            "shape": list(mres.fine.shape),
+            "wcs": frames.grid_header(grid, npix),
+            "pixel_scale_arcsec": frames.PIXEL_SCALE_ARCSEC,
+            "native_scale_arcsec": frames.PIXEL_SCALE_ARCSEC,
+            "release": "own map from single exposures",
+            "tiles": [],
+            "mjd_min": float(min(e.mjd for e, *_ in loaded)),
+            "mjd_max": float(max(e.mjd for e, *_ in loaded)),
+            "units": "MJy/sr",
+            "channels": {
+                "wavelength": [round(float(x), 5) for x in chans.wavelength],
+                "wl_min": [round(float(x), 5) for x in chans.wl_min],
+                "wl_max": [round(float(x), 5) for x in chans.wl_max],
+                "bandwidth": [round(float(x), 5) for x in chans.bandwidth],
+                "detector": [int(x) for x in chans.detector],
+            },
+            "blank": [k for k in range(mres.fine.shape[0]) if not np.isfinite(mres.fine[k]).any()],
+            "coverage": mres.coverage,
+            "note": "Built from the single SPHEREx exposures at 6.15\" pixels: each channel averages every exposure whose "
+            "wavelength at that spot falls in it, over all visits, so different channels come from different dates.",
+        }
         if cube_arr is not None:
             (out / "cube.bin").write_bytes(cube_arr.astype("<f4").tobytes())
             cube_desc["file"] = "cube.bin"
@@ -302,6 +343,7 @@ def bake(target_id: str, client: httpx.Client | None = None, out_root: Path = OU
         elif (out / "cube.bin").exists():
             (out / "cube.bin").unlink()
         blobs = [cube.tobytes(), vcube.tobytes()] + [w["image"].astype(np.float32).tobytes() for w in wise_frames]
+        blobs += [mres.matched.astype(np.float32).tobytes(), mres.matched_var.astype(np.float32).tobytes()]
         payload = b"".join(blobs)
         (out / "frames.bin").write_bytes(payload)
         plane = npix * npix * 4
@@ -310,6 +352,8 @@ def bake(target_id: str, client: httpx.Client | None = None, out_root: Path = OU
             "frames": {"offset": 0, "shape": [E, 6, npix, npix]},
             "variance": {"offset": E * 6 * plane, "shape": [E, 6, npix, npix]},
             "wise": {"offset": 2 * E * 6 * plane, "shape": [len(wise_frames), npix, npix]},
+            "matched": {"offset": (2 * E * 6 + len(wise_frames)) * plane, "shape": [E, 6, npix, npix]},
+            "matched_variance": {"offset": (3 * E * 6 + len(wise_frames)) * plane, "shape": [E, 6, npix, npix]},
             "bytes": len(payload),
         }
         meta = {
@@ -329,6 +373,7 @@ def bake(target_id: str, client: httpx.Client | None = None, out_root: Path = OU
             "epochs": epochs,
             "wise": [{k: v for k, v in w.items() if k != "image"} for w in wise_frames],
             "cube": cube_desc,
+            "finecube": fine_desc,
             "variable": t.variable,
             "colour_preset": t.colour_preset,
             "colour_hint": t.colour_hint,

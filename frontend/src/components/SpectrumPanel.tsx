@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, Square, Volume2, X } from "lucide-react";
+import { buildEcsv, download as saveFile } from "../lib/fitsio";
+import { mjdToYear as yearOf } from "../lib/astro";
 import { describeLightCurve, describeSpectrum, detrendByWavelength, playPlan, sonifyPlan, stopSound } from "../lib/sonify";
 import type { Epoch } from "../lib/bundle";
 import { FLAG_OK, REFERENCE_BANDS, points, preferRing, toCsv, type Measure, type Point, type Spectra, type SpectraSource } from "../lib/spectra";
@@ -110,6 +112,48 @@ export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, 
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
 
+  // ECSV: astropy's self-describing table (units, types, flags), so the numbers keep their meaning
+  const downloadEcsv = () => {
+    const name = source?.name ?? title ?? "map point";
+    if (source) {
+      saveFile(
+        `${source.id}-spherex.ecsv`,
+        buildEcsv(
+          [
+            { name: "mjd", datatype: "float64", unit: "d", description: "mid-exposure date", values: pts.map((p) => p.mjd) },
+            { name: "year", datatype: "float64", unit: "yr", values: pts.map((p) => Number(yearOf(p.mjd).toFixed(5))) },
+            { name: "visit", datatype: "int32", values: pts.map((p) => p.epoch + 1) },
+            { name: "detector", datatype: "int32", values: pts.map((p) => p.det) },
+            { name: "wavelength", datatype: "float64", unit: "um", description: "filter centre at the source's pixel", values: pts.map((p) => p.wl) },
+            { name: "bandwidth", datatype: "float64", unit: "um", values: pts.map((p) => p.bw) },
+            { name: "flux", datatype: "float64", unit: "mJy", description: "15.4 arcsec aperture, local sky subtracted, no aperture correction", values: pts.map((p) => p.flux) },
+            { name: "flux_err", datatype: "float64", unit: "mJy", values: pts.map((p) => p.err) },
+            { name: "flag", datatype: "int32", description: "0 ok, 1 masked pixel in aperture, 2 saturated pixel in aperture", values: pts.map((p) => p.flag) },
+          ],
+          {
+            source: name,
+            gaia_dr3: source.gaia_id ?? "",
+            data: "SPHEREx DR1+QR3 single exposures via NASA/IPAC IRSA (doi:10.26131/IRSA678, doi:10.26131/IRSA662)",
+            produced_by: "SPHEREx Blink",
+          },
+        ),
+        "text/plain",
+      );
+    } else if (map?.spectrum) {
+      saveFile(
+        "map-point-spherex.ecsv",
+        buildEcsv(
+          [
+            { name: "wavelength", datatype: "float64", unit: "um", values: map.spectrum.wl },
+            { name: "flux", datatype: "float64", unit: "mJy", description: "15.4 arcsec aperture on the time-averaged map, local sky subtracted", values: map.spectrum.flux },
+          ],
+          { source: name, data: "SPHEREx 102-channel map (time-averaged)", produced_by: "SPHEREx Blink" },
+        ),
+        "text/plain",
+      );
+    }
+  };
+
   return (
     <section className="panel flex h-full flex-col rounded-t p-3 text-sm" aria-label="Spectrum and light curve">
       <header className="mb-2 flex flex-wrap items-center gap-2">
@@ -145,8 +189,16 @@ export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, 
             {playing ? <Square size={13} /> : <Volume2 size={14} />} {playing ? "Stop" : "Listen"}
           </button>
         )}
-        <button title="Download CSV" aria-label="Download CSV" onClick={download} className="rounded p-1 text-slate-300 hover:bg-sky-400/10">
-          <Download size={14} />
+        <button title="Download CSV (spreadsheets)" aria-label="Download CSV" onClick={download} className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-slate-300 hover:bg-sky-400/10">
+          <Download size={13} /> CSV
+        </button>
+        <button
+          title="Download ECSV: units, types and flags included; opens with astropy's Table.read"
+          aria-label="Download ECSV"
+          onClick={downloadEcsv}
+          className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-slate-300 hover:bg-sky-400/10"
+        >
+          <Download size={13} /> ECSV
         </button>
         <button title="Close" aria-label="Close" onClick={onClose} className="rounded p-1 text-slate-300 hover:bg-sky-400/10">
           <X size={14} />

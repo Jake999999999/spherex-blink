@@ -1,0 +1,38 @@
+cff-version: 1.2.0
+message: "If you use SPHEREx Blink or its processed data, please cite it as below, and cite the SPHEREx data releases it uses."
+title: "SPHEREx Blink: blink comparator, difference images and spectra for NASA's SPHEREx survey"
+type: software
+authors:
+  - alias: Jake999999999
+license: MIT
+repository-code: "https://github.com/Jake999999999/spherex-blink"
+version: 0.2.0
+date-released: 2026-11-15
+keywords:
+  - SPHEREx
+  - infrared astronomy
+  - proper motion
+  - spectroscopy
+  - citizen science
+  - NASA Space Apps
+references:
+  - type: data
+    title: "SPHEREx Data Release 1 Spectral Images"
+    authors:
+      - name: "NASA/IPAC Infrared Science Archive"
+    doi: 10.26131/IRSA678
+  - type: data
+    title: "SPHEREx Quick Release 3 Spectral Images"
+    authors:
+      - name: "NASA/IPAC Infrared Science Archive"
+    doi: 10.26131/IRSA662
+  - type: data
+    title: "SPHEREx Data Release 1 All-Sky Spectral Cube"
+    authors:
+      - name: "NASA/IPAC Infrared Science Archive"
+    doi: 10.26131/IRSA679
+  - type: data
+    title: "Gaia Data Release 3"
+    authors:
+      - name: "Gaia Collaboration"
+    doi: 10.1051/0004-6361/202243940

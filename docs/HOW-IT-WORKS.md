@@ -42,7 +42,7 @@ Each cutout is a multi-extension FITS file with `IMAGE` (surface brightness in M
 
 1. Subtract the `ZODI` model from `IMAGE` (the archive does not do this).
 2. Subtract any leftover background: the sigma-clipped median of the remaining good pixels.
-3. Mark bad pixels using `FLAGS` bits 1 (overflow/saturated), 2, 6, 9, 10, 11, 15 (nonlinear) and 19. **Bit 21 ("SOURCE") is deliberately not masked**: it is set on every star, and masking it would erase the stars.
+3. Mark bad pixels using `FLAGS`: overflow/saturated (1) and the other detector problems (2, 6, 9, 10, 11, 15, 19), plus the artefacts that can fake a one-off brightening: cosmic-ray hits (0), the dichroic edge (7), persistence (17), crosstalk (20), ghosts (22–24), streaks (25), blooming (26), snowballs (27) and halos (28). Together they cost about 5% of pixels; how often each is set is measured in [`VALIDATION.md`](VALIDATION.md). **Bit 21 ("SOURCE") is deliberately not masked**: it is set on every star, and masking it would erase the stars.
 4. Read the wavelength at the cutout centre (and later at each star) from `WCS-WAVE`.
 
 ### 2.4 Putting every exposure on one grid (`frames.resample`)
@@ -56,6 +56,13 @@ Exposures are rotated and shifted differently. Each one is resampled onto a comm
 - A visit/detector with fewer than 3 exposures is left out rather than shown noisy.
 
 Each stacked frame mixes the wavelengths within its detector (e.g. 4.42–5.01 µm for D6). That is right for seeing positions and changes; spectra come from the single exposures (2.7).
+
+### 2.5b Wavelength-matched stacks and our own 6.15″ map (`matched.py`)
+
+A visit stack mixes the wavelengths inside one detector, and each visit samples a slightly different mix, so a star's colour alone could make it look brighter or fainter in a difference image. So the bake also puts every exposure's per-pixel wavelength on the grid and stacks each visit **per channel** (the map's 102 channels): S[visit, channel].
+
+- Their average over visits, M[channel], is a 102-channel map built from the single exposures at **6.15″ pixels, twice as sharp as NASA's 12.9″ map**. The Colour view uses it by default ("Sharper map"; "NASA map" switches back). Every channel has data at every pixel for all five targets, from about 3 visits each.
+- A visit's **matched frame** for a detector is the weighted mean over its channels of S − M, after removing any sky offset and a smooth sky gradient (sliding median, 15 px). The difference of two matched frames compares like with like at every wavelength, which is what the Difference view shows. Measured on the real targets, the leftover at static stars falls from 7–15% of their brightness to 6–9% (table in [`VALIDATION.md`](VALIDATION.md)); what remains is mostly small differences in image sharpness and alignment between visits.
 
 ### 2.6 The 2010 WISE image (`wise.py`)
 
@@ -147,7 +154,14 @@ Clicking in colour mode gives the **map spectrum** of that spot: the same 15.4�
 - Every chart has a sentence underneath, generated from the data: where the spectrum peaks and which dips line up with reference bands (only dips deeper than 25% *and* well above the noise), or whether a light curve changes. Light curves are first divided by the star's typical brightness at each wavelength and compared visit by visit, so a star that is merely brighter at some wavelengths than others isn't called variable.
 - Other accessibility rules: blinking is capped at 3 frame changes per second (the WCAG flash limit) and doesn't start on its own if the system asks for reduced motion; frame changes are announced to screen readers only when you step, not during playback; the sky view has a text description; single-key shortcuts can be switched off in Help and are ignored while typing or using a slider; small text is at least 7.9:1 contrast.
 
-### 3.7 Tour, URL and keys
+### 3.7 Getting the data out
+
+- **FITS** (button on the image): exactly what's on screen (a visit frame, a difference or the three colour planes), with raw values (never the display-only fills), full sky coordinates and provenance in the header.
+- **ECSV** and CSV (spectrum panel): every measurement with units, errors, wavelength, bandwidth and flags; ECSV opens directly with astropy.
+- A test writes both with the app's own code and reads them back with astropy (`backend/tests/test_exports.py`).
+- Cite with `CITATION.cff`; tests run on every push (`.github/workflows/ci.yml`).
+
+### 3.8 Tour, URL and keys
 
 The guided tour (`src/lib/tour.ts`) is a list of steps; each can set up the view, spotlight a part of the page and wait for the visitor to try one thing. The view is mirrored in the URL (`?target=…&mode=…&band=…&t1=…&t2=…`). Keys: Space, ← →, D, G, P, R, Esc. `?silent` is for automated testing.
 

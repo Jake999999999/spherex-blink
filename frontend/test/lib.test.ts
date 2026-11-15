@@ -160,3 +160,15 @@ test("colormap LUTs are 256 RGBA entries from first to last stop", () => {
   const d = buildLut("diverging");
   expect(d[128 * 4]).toBeLessThan(20); // near black in the middle
 });
+
+import { float16ToFloat32 } from "../src/lib/bundle";
+
+test("float16 decoding matches numpy's half floats", () => {
+  // 1.0, -2.0, 0.5, 65504 (max), NaN, a subnormal (2^-24), 3.140625
+  const h = Uint16Array.from([0x3c00, 0xc000, 0x3800, 0x7bff, 0x7e00, 0x0001, 0x4248]);
+  const f = float16ToFloat32(h);
+  expect(Array.from(f.slice(0, 4))).toEqual([1, -2, 0.5, 65504]);
+  expect(Number.isNaN(f[4])).toBe(true);
+  expect(f[5]).toBeCloseTo(2 ** -24, 30);
+  expect(f[6]).toBeCloseTo(3.140625, 6);
+});
