@@ -10,7 +10,7 @@ A NASA Space Apps Challenge 2026 entry. Not a NASA product.
 
 - **Any spot in the sky**: type a name (“R Draconis”) or coordinates (`08h55m10.831s -07d14m42.53s`, `133.795 -7.245`), choose the field of view (2–15′), and the app fetches the SPHEREx exposures, the 2010 WISE images and Gaia stars for that patch from NASA's and ESA's archives, processes them and shows them like a little video. A link with `?ra=…&dec=…&fov=…` opens the same view (embeddable). This needs the small local server below.
 
-- **Blink** between the SPHEREx visits of a patch of sky, plus a 2010 image from NASA's WISE telescope. Fast-moving nearby stars visibly jump.
+- **Blink** between the SPHEREx visits of a patch of sky, plus WISE images from 2010 and NEOWISE images from about every six months between 2014 and 2024: up to ~25 frames over 16 years, so nearby stars glide across the field like a little video.
 - **Difference**: subtract an older visit from a newer one. Stars that didn't change disappear; a moving object leaves an amber/cyan pair, a brightening star turns amber.
 - **Pick a wavelength**: SPHEREx's six detectors cover 0.75–5.0 µm. Cool objects (brown dwarfs) get brighter at long wavelengths.
 - **Click any marked star** for its spectrum (one dot per SPHEREx exposure), its light curve and a table/CSV of every measurement.

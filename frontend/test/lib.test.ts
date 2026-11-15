@@ -185,3 +185,27 @@ test("?ra=&dec=&fov= opens any spot (embeddable); bad values are ignored", () =>
   expect(parseLive("?ra=abc&dec=5")).toBeNull();
   expect(parseLive("?target=barnard")).toBeNull();
 });
+
+import { stepPlane } from "../src/lib/sequence";
+
+test("NEOWISE yearly frames join the blink after 2010, in the detector's band, with their own planes", () => {
+  const b = fakeBundle(3, 4, 5, 2);
+  const n = 4 * 5;
+  b.meta.neowise = {
+    file: "neowise.bin",
+    shape: [3, 4, 5],
+    frames: [
+      { band: "W1", wavelength_um: 3.4, mjd: 57000, mjd_min: 56990, mjd_max: 57010, n: 6 },
+      { band: "W2", wavelength_um: 4.6, mjd: 57000, mjd_min: 56990, mjd_max: 57010, n: 6 },
+      { band: "W2", wavelength_um: 4.6, mjd: 58000, mjd_min: 57990, mjd_max: 58010, n: 5 },
+    ],
+    missing: null,
+    credit: "",
+  };
+  b.neowise = Float32Array.from({ length: 3 * n }, (_, k) => 100 + Math.floor(k / n));
+  const s6 = blinkSteps(b, 6, true);
+  expect(s6.map((s) => s.label)).toEqual(["WISE 2010", "WISE 2014", "WISE 2017", "Visit 1", "Visit 2", "Visit 3"]);
+  expect(stepPlane(b, s6[2], 6)[0]).toBe(102); // the third NEOWISE frame (W2, 2017)
+  expect(blinkSteps(b, 2, true).filter((s) => s.source?.kind === "neowise")).toHaveLength(1); // W1 only
+  expect(blinkSteps(b, 6, true, false).map((s) => s.label)[1]).toBe("Visit 1"); // switched off
+});

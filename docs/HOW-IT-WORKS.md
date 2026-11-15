@@ -68,6 +68,10 @@ A visit stack mixes the wavelengths inside one detector, and each visit samples 
 
 NASA's WISE mapped the sky in 2010. We fetch AllWISE W1 (3.4 µm) and W2 (4.6 µm) cutouts, blur them to match SPHEREx's coarser pixels (Gaussian, σ = half the pixel-size ratio), subtract the background and resample onto the same grid. WISE is a different camera with different units, so it is only ever **blinked**, never subtracted from SPHEREx. W1 is paired with detectors 1–4, W2 with 5–6. If IRSA's WISE search is down at bake time, the bundle is made without it and says why.
 
+### 2.6b NEOWISE yearly frames (`neowise.py`)
+
+After the AllWISE survey, WISE kept scanning the whole sky every six months as NEOWISE (2014–2024). For each visit and band (W1 3.4 µm, W2 4.6 µm) we take up to 6 single exposures spread over the visit (3 in a live quick look) from IRSA's `neowiser` collection. Each is background-subtracted, low-passed from 2.75″ to the 6.15″ grid and resampled; the visit's frame is the median, which also removes cosmic rays. That adds about 20 frames between 2010 and SPHEREx, so the blink becomes a 16-year video and the motion fit gets many more points. Like the 2010 frame it is a different telescope with different units (DN): it is blinked and used for positions, never subtracted from SPHEREx. Stored as half floats in `neowise.bin`.
+
 ### 2.7 Spectra and light curves: photometry on single exposures (`photometry.py`)
 
 For the target and up to 30 of the brightest Gaia stars in the field (G < 15), in every exposure, in the exposure's own pixels (no resampling):
