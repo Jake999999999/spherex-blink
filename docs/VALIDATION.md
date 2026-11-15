@@ -79,6 +79,21 @@ Leftover at static field stars (Gaia G ≤ 15, not moving) in the difference of 
 
 What remains comes mostly from small differences in image sharpness and alignment between visits (PSF matching, roadmap S6).
 
+## 8. Are the error bars right? (S3)
+
+If the stated uncertainties are right, a measurement divided by its uncertainty scatters with a standard deviation of 1. Measured in blank sky (more than 3.5 px from any Gaia star) of the matched stacks, where the real sky cancels, and for single-exposure photometry of constant field stars (each point against the star's typical brightness at the same wavelength). Above 1 means the stated errors are too small by that factor.
+
+| Detector | Matched stack (difference images) | Single-exposure photometry |
+|---|---|---|
+| D1 | 1.41 | 1.53 |
+| D2 | 1.06 | 2.44 |
+| D3 | 1.16 | 1.83 |
+| D4 | 1.01 | 0.98 |
+| D5 | 0.91 | 1.31 |
+| D6 | 0.93 | 1.09 |
+
+(Plain stacks fail this test for a good reason: their “blank” sky still holds real faint stars and glow below Gaia's limit, so it isn't pure noise.) The app multiplies single-exposure error bars by the photometry factor for each detector (never by less than 1). Absolute brightness carries a further ≈4% uncertainty (the star-to-star spread against 2MASS/WISE, section 1).
+
 ## Known limits
 
 - No aperture correction is applied; section 1 shows the fluxes nevertheless agree with 2MASS/WISE to a few per cent for unsaturated stars.

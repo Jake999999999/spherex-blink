@@ -373,11 +373,70 @@ def matched_check(meta: dict, data: np.ndarray, gstars: list[dict]) -> dict | No
     return {k: float(np.median(v)) for k, v in pct.items()} | {"n": len(pct["plain"])}
 
 
+def noise_check(meta: dict, data: np.ndarray, gstars: list[dict]) -> dict:
+    """S3: is the stated uncertainty right? In blank sky (> 3 px from any Gaia star), value / sigma should
+    have a standard deviation of 1. Returns the robust std per detector for plain and matched stacks."""
+    L = meta["layout"]
+    E, _, h, w = L["frames"]["shape"]
+    yy, xx = np.mgrid[0:h, 0:w]
+    near = np.zeros((h, w), bool)
+    yr = gaia.mjd_to_year(meta["epochs"][0]["mjd"])
+    for st in gstars:
+        ra, dec = gaia.propagate(st["ra"], st["dec"], st["pmra"], st["pmdec"], 2016.0, yr)
+        x, y = _to_pix(meta, ra, dec)
+        near |= np.hypot(xx - x, yy - y) < 3.5
+    t = meta["target"]
+    for year in (gaia.mjd_to_year(e["mjd"]) for e in meta["epochs"]):
+        x, y = _to_pix(meta, *gaia.propagate(t["ra"], t["dec"], t["pmra"], t["pmdec"], t["ref_year"], year))
+        near |= np.hypot(xx - x, yy - y) < 6
+
+    def blk(name):
+        off = L[name]["offset"] // 4
+        return data[off : off + E * 6 * h * w].reshape(E, 6, h, w)
+
+    out = {}
+    pairs = [("plain", "frames", "variance")]
+    if "matched" in L:
+        pairs.append(("matched", "matched", "matched_variance"))
+    for kind, a, v in pairs:
+        val, var = blk(a), blk(v)
+        per = {}
+        for d in range(6):
+            z = []
+            for e in range(E):
+                zz = val[e, d] / np.sqrt(var[e, d])
+                if kind == "plain":
+                    zz = zz - np.nanmedian(zz[~near])  # sky level isn't zero in a plain stack
+                zz = zz[~near & np.isfinite(zz)]
+                z.append(zz)
+            z = np.concatenate(z) if z else np.array([])
+            if z.size > 50:
+                per[d + 1] = float(np.median(np.abs(z - np.median(z))) * 1.4826)
+        out[kind] = per
+    return out
+
+
+def photometry_noise_check(spectra: dict) -> dict:
+    """S3: for constant field stars, (flux - typical flux at that wavelength) / stated error should have
+    std 1. Returns the robust std per detector (the factor to multiply single-exposure errors by)."""
+    ex = spectra["exposures"]
+    per: dict[int, list[float]] = {}
+    for src in spectra["sources"][1:]:
+        if src.get("g") is None or not (10 <= src["g"] <= 14.5):
+            continue
+        rows = [(wl, f, er, det) for f, er, fl, wl, det in zip(src["flux"], src["err"], src["flag"], src["wl"], ex["det"]) if f is not None and fl == 0 and er and er > 0 and wl]
+        for wl, f, er, det in rows:
+            near = sorted(f2 for wl2, f2, _, _ in rows if abs(wl2 - wl) <= 0.015 * wl)
+            if len(near) >= 4:
+                per.setdefault(det, []).append((f - near[len(near) // 2]) / er)
+    return {d: float(np.median(np.abs(np.array(v) - np.median(v))) * 1.4826) for d, v in per.items() if len(v) >= 20}
+
+
 def run(client: httpx.Client | None = None) -> dict:
     own = client is None
     client = client or irsa.make_client()
     try:
-        phot, ast, mot, rep, mp, mtc = [], {}, {}, {}, [], {}
+        phot, ast, mot, rep, mp, mtc, noise, pnoise = [], {}, {}, {}, [], {}, {}, {}
         for tid in TARGET_ORDER:
             loaded = _load(tid)
             if not loaded:
@@ -391,6 +450,8 @@ def run(client: httpx.Client | None = None) -> dict:
                 mot[tid] = m
             rep[tid] = repeatability_check(spectra)
             mp += map_check(meta, spectra, tid)
+            noise[tid] = noise_check(meta, data, g["stars"])
+            pnoise[tid] = photometry_noise_check(spectra)
             mc = matched_check(meta, data, g["stars"])
             if mc:
                 mtc[tid] = mc
@@ -418,6 +479,7 @@ def run(client: httpx.Client | None = None) -> dict:
                 "per_target": {k: (float(np.median(v)) if v else None) for k, v in rep.items()},
             },
             "flags": flag_check(TARGET_ORDER),
+            "noise": _combine_noise(noise, pnoise, by_band),
             "matched_difference": mtc,
             "map_vs_exposures": {
                 "rows": mp,
@@ -426,11 +488,50 @@ def run(client: httpx.Client | None = None) -> dict:
             },
         }
         (OUT_ROOT / "validation.json").write_text(json.dumps(result, indent=1))
+        write_error_model(result)
         write_markdown(result)
         return result
     finally:
         if own:
             client.close()
+
+
+def _combine_noise(noise: dict, pnoise: dict, by_band: dict) -> dict:
+    """Median over targets of the error-scale factors per detector, and the systematic floor."""
+    out: dict = {"stack": {}, "photometry": {}}
+    for kind in ("plain", "matched"):
+        out["stack"][kind] = {}
+        for d in range(1, 7):
+            v = [n[kind][d] for n in noise.values() if kind in n and d in n[kind]]
+            if v:
+                out["stack"][kind][d] = float(np.median(v))
+    for d in range(1, 7):
+        v = [pn[d] for pn in pnoise.values() if d in pn]
+        if v:
+            out["photometry"][d] = float(np.median(v))
+    # floor: the visit-to-visit scatter of constant stars that statistical errors don't explain is
+    # handled by the scale; the remaining *absolute* uncertainty is the catalogue spread
+    spreads = [b["scatter"] for b in by_band.values()]
+    out["absolute_floor"] = float(np.median(spreads)) if spreads else None
+    return out
+
+
+def write_error_model(r: dict) -> None:
+    """S3: store the measured error scale per detector in every spectra.json, so the app shows honest
+    error bars (stated error x scale)."""
+    scale = r["noise"]["photometry"]
+    for tid in TARGET_ORDER:
+        sp = OUT_ROOT / tid / "spectra.json"
+        if not sp.exists():
+            continue
+        s = json.loads(sp.read_text())
+        s["error_model"] = {
+            "scale": {str(d): round(max(1.0, v), 3) for d, v in scale.items()},
+            "absolute_floor": r["noise"]["absolute_floor"],
+            "note": "Single-exposure errors are multiplied by the per-detector scale measured on constant field stars "
+            "(never below 1). The absolute floor is the star-to-star spread against 2MASS/WISE.",
+        }
+        sp.write_text(json.dumps(s, separators=(",", ":")))
 
 
 def write_markdown(r: dict) -> None:
@@ -521,6 +622,30 @@ def write_markdown(r: dict) -> None:
         for k, v in r["matched_difference"].items():
             lines.append(f"| {k} | {v['plain']:.1f}% | {v['matched']:.1f}% | {v['n']} |")
         lines += ["", "What remains comes mostly from small differences in image sharpness and alignment between visits (PSF matching, roadmap S6).", ""]
+    nz = r.get("noise") or {}
+    if nz.get("stack"):
+        lines += [
+            "## 8. Are the error bars right? (S3)",
+            "",
+            "If the stated uncertainties are right, a measurement divided by its uncertainty scatters with a standard deviation of 1. "
+            "Measured in blank sky (more than 3.5 px from any Gaia star) of the matched stacks, where the real sky cancels, and for single-exposure photometry of constant field stars "
+            "(each point against the star's typical brightness at the same wavelength). Above 1 means the stated errors are too small by that factor.",
+            "",
+            "| Detector | Matched stack (difference images) | Single-exposure photometry |",
+            "|---|---|---|",
+        ]
+        for d in range(1, 7):
+            g = lambda k: nz["stack"].get(k, {}).get(d) or nz["stack"].get(k, {}).get(str(d))  # noqa: E731
+            ph = nz["photometry"].get(d) or nz["photometry"].get(str(d))
+            fmt = lambda x: f"{x:.2f}" if x is not None else "–"  # noqa: E731
+            lines.append(f"| D{d} | {fmt(g('matched'))} | {fmt(ph)} |")
+        lines += [
+            "",
+            "(Plain stacks fail this test for a good reason: their “blank” sky still holds real faint stars and glow below Gaia's limit, so it isn't pure noise.) "
+            "The app multiplies single-exposure error bars by the photometry factor for each detector (never by less than 1). "
+            f"Absolute brightness carries a further ≈{(nz.get('absolute_floor') or 0) * 100:.0f}% uncertainty (the star-to-star spread against 2MASS/WISE, section 1).",
+            "",
+        ]
     lines += [
         "## Known limits",
         "",

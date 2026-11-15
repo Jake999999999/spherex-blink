@@ -123,3 +123,10 @@ test("fillSaturated fills a star's NaN core but not a field-edge gap", () => {
   expect(Number.isNaN(f[3 * w + 0])).toBe(true);
   expect(Number.isNaN(p[10 * w + 10])).toBe(true); // original untouched
 });
+
+test("error bars use the measured per-detector scale (never below 1)", () => {
+  const s = { ...spectra, error_model: { scale: { "1": 2.5, "2": 0.8 }, absolute_floor: 0.04, note: "" } };
+  const p = points(s, s.sources[1]);
+  expect(p.find((q) => q.det === 1)!.err).toBeCloseTo(2.5, 9); // stated 1 x 2.5
+  expect(p.find((q) => q.det === 2)!.err).toBeCloseTo(1, 9); // 0.8 is clamped to 1
+});

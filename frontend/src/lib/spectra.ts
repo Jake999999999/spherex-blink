@@ -34,6 +34,8 @@ export interface Spectra {
   flags: Record<string, string>;
   wing_arcsec?: [number, number];
   wing_note?: string;
+  /** S3: measured on constant field stars; single-exposure errors are multiplied by scale[detector] */
+  error_model?: { scale: Record<string, number>; absolute_floor: number | null; note: string };
   exposures: { mjd: number[]; det: number[]; epoch: number[] };
   sources: SpectraSource[];
 }
@@ -65,7 +67,9 @@ export function points(s: Spectra, src: SpectraSource, measure: Measure = "core"
     let flag = ring ? (src.wing_flag?.[i] ?? 0) : src.flag[i];
     // The ring tolerates a few masked (e.g. nonlinear) pixels and scales for them; only saturation in the ring counts against it.
     if (ring && flag === FLAG_BAD_PIXEL) flag = FLAG_OK;
-    const err = ring ? (src.wing_err?.[i] ?? 0) : (src.err[i] ?? 0);
+    const raw = ring ? (src.wing_err?.[i] ?? 0) : (src.err[i] ?? 0);
+    // honest error bars (S3): stated errors were too small by a measured factor per detector
+    const err = raw * Math.max(1, s.error_model?.scale[String(e.det[i])] ?? 1);
     out.push({ i, mjd: e.mjd[i], wl: w, bw: src.bw[i], flux: f, err, flag, det: e.det[i], epoch: e.epoch[i] });
   }
   return out;

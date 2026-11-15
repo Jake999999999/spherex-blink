@@ -269,7 +269,7 @@ export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, 
         <span>
           {shownTab === "lightcurve" && lcMeasure === "ring" && spectra?.wing_arcsec
             ? `Ring ${spectra.wing_arcsec[0].toFixed(0)}–${spectra.wing_arcsec[1].toFixed(0)}″ around the saturated core: tracks brightness over time; the ring holds a different share of the light at each wavelength, so compare dates within one detector only.`
-            : `${spectra?.aperture_arcsec ?? 15.4}″ aperture, local sky subtracted, no aperture correction: compare points with each other, not with catalogue magnitudes.`}
+            : `${spectra?.aperture_arcsec ?? 15.4}″ aperture, local sky subtracted. For unsaturated stars these match 2MASS and WISE to about 3%${spectra?.error_model ? "; error bars include a correction measured on steady stars" : ""}.`}
         </span>
       </footer>
     </section>
