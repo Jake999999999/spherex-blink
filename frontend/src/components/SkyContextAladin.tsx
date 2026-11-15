@@ -129,6 +129,7 @@ export function SkyContextAladin({ wcs, shape, gaiaStars, streak }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gaiaNote, setGaiaNote] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
 
   const hostRef = useRef<HTMLDivElement>(null);
   const aladinRef = useRef<AladinInstance | null>(null);
@@ -149,9 +150,14 @@ export function SkyContextAladin({ wcs, shape, gaiaStars, streak }: Props) {
     return [c0, c1, c2, c3, c0];
   }, [wcs, width, height]);
 
-  // Mount Aladin Lite once when the panel is first opened
+  // Mount Aladin Lite each time the panel is opened
   useEffect(() => {
-    if (!open || !hostRef.current) return;
+    if (!open || !hostRef.current) {
+      aladinRef.current = null;
+      overlayRef.current = null;
+      catalogRef.current = null;
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -159,47 +165,46 @@ export function SkyContextAladin({ wcs, shape, gaiaStars, streak }: Props) {
     loadAladinLite()
       .then((A) => {
         if (cancelled || !hostRef.current) return;
-        if (!aladinRef.current) {
-          const instance = A.aladin(hostRef.current, {
-            survey,
-            fov: contextFovDeg,
-            target: `${ra} ${dec}`,
-            showReticle: true,
-            showZoomControl: true,
-            showFullscreenControl: false,
-            showLayersControl: false,
-            showGotoControl: false,
-            showFrame: false,
-            cooFrame: "ICRSd",
-          });
-          const overlay = A.graphicOverlay({ color: "#f59e0b", lineWidth: 2 });
-          const catalog = A.catalog({
-            name: "Gaia DR3",
-            sourceSize: 9,
-            color: "#22d3ee",
-            shape: "circle",
-            onClick: "showPopup",
-          });
-          instance.addOverlay(overlay);
-          instance.addCatalog(catalog);
-          aladinRef.current = instance;
-          overlayRef.current = overlay;
-          catalogRef.current = catalog;
-        }
+        const instance = A.aladin(hostRef.current, {
+          survey,
+          fov: contextFovDeg,
+          target: `${ra} ${dec}`,
+          showReticle: true,
+          showZoomControl: true,
+          showFullscreenControl: false,
+          showLayersControl: false,
+          showGotoControl: false,
+          showFrame: false,
+          cooFrame: "ICRSd",
+        });
+        const overlay = A.graphicOverlay({ color: "#f59e0b", lineWidth: 2 });
+        const catalog = A.catalog({
+          name: "Gaia DR3",
+          sourceSize: 9,
+          color: "#22d3ee",
+          shape: "circle",
+          onClick: "showPopup",
+        });
+        instance.addOverlay(overlay);
+        instance.addCatalog(catalog);
+        aladinRef.current = instance;
+        overlayRef.current = overlay;
+        catalogRef.current = catalog;
         setLoading(false);
       })
       .catch((err) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Failed to load Aladin Lite");
+        const msg = typeof err === "string" ? err : err instanceof Error ? err.message : "Failed to load Aladin Lite";
+        setError(msg);
         setLoading(false);
       });
 
     return () => {
       cancelled = true;
     };
-    // Intentionally initialize once when opened; updates are handled in separate effects
+    // Intentionally initialize when opened/retried; updates are handled in separate effects
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, retryKey]);
 
   // Update survey when toggled
   useEffect(() => {
@@ -295,8 +300,18 @@ export function SkyContextAladin({ wcs, shape, gaiaStars, streak }: Props) {
               </div>
             )}
             {error && (
-              <div className="absolute inset-0 flex items-center justify-center bg-slate-950/90 p-3 text-center text-xs text-amber-300">
-                {error}
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-950/90 p-3 text-center text-xs text-amber-300">
+                <span>{error}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    aladinLoader = null;
+                    setRetryKey((k) => k + 1);
+                  }}
+                  className="rounded border border-amber-400/40 px-2.5 py-1 text-[11px] text-amber-200 hover:bg-amber-400/10"
+                >
+                  Retry
+                </button>
               </div>
             )}
           </div>
