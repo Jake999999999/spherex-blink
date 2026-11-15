@@ -20,6 +20,8 @@ export interface TourSetup {
   playing?: boolean;
   /** jump the blink to this frame kind */
   frame?: "first-spherex" | "wise";
+  /** colour preset id (frontend/src/lib/colour.ts) */
+  preset?: string;
 }
 
 export interface TourStep {
@@ -106,6 +108,18 @@ export const TOUR: TourStep[] = [
     body:
       "Each dot is one SPHEREx exposure. The deep dips line up with the labels at the top: water (H₂O) and methane (CH₄) absorbing light in the brown dwarfs' cold atmospheres. A normal star doesn't show this; try clicking a different star later to compare.",
     setup: { select: "target", tab: "spectrum" },
+    needs: "eps-ind-b",
+  },
+  {
+    id: "colour",
+    anchor: "view",
+    title: "See the molecules as colour",
+    body:
+      "SPHEREx splits infrared light into 102 colours. Colour view paints three of them as red, green and blue. This one puts green right on methane's wavelength, so anything with methane loses its green.",
+    task: "Click “Colour”.",
+    setup: { target: "eps-ind-b", patch: { mode: "diff", band: 3 }, select: null, preset: "methane", playing: false },
+    done: (c) => c.target === "eps-ind-b" && c.mode === "colour",
+    doneText: "The brown dwarfs glow pink: methane in their air swallows the green. The ordinary star nearby stays blue-white. Drag the coloured windows on the right to try other wavelengths.",
     needs: "eps-ind-b",
   },
   {

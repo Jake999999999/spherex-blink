@@ -76,3 +76,51 @@ describe("colour maths", () => {
     }
   });
 });
+
+import { blowOutSaturated, colourName, whyColour, windowShares } from "../src/lib/colour";
+import { REFERENCE_BANDS } from "../src/lib/spectra";
+
+describe("honest colour", () => {
+  test("a window needs data in at least half its channels", () => {
+    const c = makeCube();
+    // make channels 0 and 1 empty at pixel (5,5): window 0.95–1.25 µm then has 1 of 3 -> NaN
+    const n = c.n;
+    c.data[0 * n * n + 5 * n + 5] = NaN;
+    c.data[1 * n * n + 5 * n + 5] = NaN;
+    expect(Number.isNaN(windowMean(c, { lo: 0.95, hi: 1.25 })[5 * n + 5])).toBe(true);
+  });
+  test("blown-out cores turn white; empty sky stays empty", () => {
+    const n = 5;
+    const plane = () => new Float32Array(n * n).fill(1);
+    const p: [Float32Array, Float32Array, Float32Array] = [plane(), plane(), plane()];
+    for (const q of p) q[2 * n + 1] = 100; // a bright star left of the centre
+    p[1][2 * n + 2] = NaN; // its saturated core has no green
+    p[0][0] = NaN; // a missing corner far from anything bright
+    const { planes, count } = blowOutSaturated(p, n, [100, 100, 100]);
+    expect(count).toBe(1);
+    expect([planes[0][2 * n + 2], planes[1][2 * n + 2], planes[2][2 * n + 2]]).toEqual([100, 100, 100]);
+    expect(Number.isNaN(planes[0][0])).toBe(true);
+  });
+  test("colour names", () => {
+    expect(colourName([1, 0.1, 0.9])).toBe("magenta");
+    expect(colourName([0.69, 0.09, 0.22])).toBe("pink"); // Eps Indi B in the methane view
+    expect(colourName([0.2, 0.5, 1])).toBe("blue");
+    expect(colourName([1, 0.95, 0.9])).toBe("white");
+    expect(colourName([1, 0.3, 0.05])).toBe("red");
+  });
+  test("why: Eps Indi B in the methane view", () => {
+    const mix = PRESETS.find((p) => p.id === "methane")!.mix;
+    // bright at 4.0 µm (red), dark at 3.3 µm (green), medium at 3.05 µm (blue): the measured pattern
+    const wl = [3.0, 3.05, 3.1, 3.25, 3.3, 3.4, 3.95, 4.0, 4.1];
+    const fl = [21, 22, 21, 3, 2.5, 3, 66, 69, 66]; // shares ≈ 0.69 / 0.09 / 0.22, as measured
+    const shares = windowShares(wl, fl, mix)!;
+    const s = whyColour(shares, mix, REFERENCE_BANDS);
+    expect(s).toContain("pink");
+    expect(s).toContain("dim in the green window");
+    expect(s).toContain("CH₄ absorbs light");
+  });
+  test("no shares without at least two points per window", () => {
+    const mix = PRESETS[0].mix;
+    expect(windowShares([1.0], [5], mix)).toBeNull();
+  });
+});

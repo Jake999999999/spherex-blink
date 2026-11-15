@@ -12,7 +12,7 @@ A NASA Space Apps Challenge 2026 entry. Not a NASA product.
 - **Difference**: subtract an older visit from a newer one. Stars that didn't change disappear; a moving object leaves an amber/cyan pair, a brightening star turns amber.
 - **Pick a wavelength**: SPHEREx's six detectors cover 0.75–5.0 µm. Cool objects (brown dwarfs) get brighter at long wavelengths.
 - **Click any marked star** for its spectrum (one dot per SPHEREx exposure), its light curve and a table/CSV of every measurement.
-- **Colour**: false-colour pictures from SPHEREx's 102-colour all-sky map, with presets (methane, water, warm dust) or your own three wavelength windows. Brown dwarfs turn magenta in the methane view. Click any point for its map spectrum.
+- **Colour**: false-colour pictures from SPHEREx's 102-colour all-sky map, with presets (methane, water, warm dust) or your own three wavelength windows. Brown dwarfs turn pink in the methane view. Click any point for its map spectrum.
 - **Measure motion**: centroid a moving star in each frame and fit its speed, compared with ESA's Gaia catalogue.
 - **How accurate is it?** Checked against 2MASS, WISE and Gaia: brightness within 3%, positions within 0.6″, motions within 1% (see [`docs/VALIDATION.md`](docs/VALIDATION.md)).
 - **Listen and read**: every spectrum and light curve can be played as sound and comes with a plain-language summary; single-key shortcuts can be switched off; blinking never exceeds 3 changes per second.

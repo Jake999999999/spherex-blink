@@ -79,6 +79,8 @@ export interface Meta {
   epochs: Epoch[];
   wise: WiseFrame[];
   cube?: CubeDesc | null;
+  colour_preset?: string;
+  colour_hint?: string;
   variable?: boolean;
   layout: {
     dtype: "float32";

@@ -63,7 +63,7 @@ export const PRESETS: Preset[] = [
   {
     id: "methane",
     name: "Methane",
-    what: "Green sits on methane's 3.3 µm absorption band. Objects with methane (cool brown dwarfs) lose green and turn magenta.",
+    what: "Green sits on methane's 3.3 µm absorption band. Objects with methane (cool brown dwarfs) lose green and turn pink.",
     mix: { b: { lo: 2.95, hi: 3.15 }, g: { lo: 3.2, hi: 3.45 }, r: { lo: 3.9, hi: 4.15 } },
   },
   {
@@ -98,7 +98,11 @@ export function channelsIn(c: Cube, w: Window): number[] {
   return out;
 }
 
-/** Mean over the window's channels, per pixel, skipping NaN. NaN where no channel has data. */
+/**
+ * Mean over the window's channels, per pixel. A pixel needs real data in at least half of the
+ * window's channels; otherwise it is NaN. (A saturated star has no data at the wavelengths where it is
+ * too bright, so averaging only the channels that survive would give it a false colour.)
+ */
 export function windowMean(c: Cube, w: Window): Float32Array {
   const ks = channelsIn(c, w);
   const nn = c.n * c.n;
@@ -114,9 +118,52 @@ export function windowMean(c: Cube, w: Window): Float32Array {
       }
     }
   }
+  const need = Math.max(1, Math.ceil(ks.length / 2));
   const out = new Float32Array(nn);
-  for (let i = 0; i < nn; i++) out[i] = cnt[i] ? sum[i] / cnt[i] : NaN;
+  for (let i = 0; i < nn; i++) out[i] = cnt[i] >= need ? sum[i] / cnt[i] : NaN;
   return out;
+}
+
+/**
+ * Display-only: a pixel with no colour (some window empty) right next to a very bright pixel is a
+ * saturated star core. Paint it white (every plane at its white level), like a blown-out star in a
+ * photo, and report how many there were. Empty pixels elsewhere stay empty.
+ */
+export function blowOutSaturated(
+  planes: [Float32Array, Float32Array, Float32Array],
+  n: number,
+  white: [number, number, number],
+): { planes: [Float32Array, Float32Array, Float32Array]; count: number } {
+  const out = planes.map((p) => new Float32Array(p)) as [Float32Array, Float32Array, Float32Array];
+  let count = 0;
+  let changed = true;
+  for (let pass = 0; pass < 4 && changed; pass++) {
+    changed = false;
+    const snap = out.map((p) => new Float32Array(p));
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        const i = y * n + x;
+        if (snap.every((p) => Number.isFinite(p[i]))) continue;
+        let bright = false;
+        for (let dy = -1; dy <= 1 && !bright; dy++) {
+          for (let dx = -1; dx <= 1 && !bright; dx++) {
+            const xx = x + dx;
+            const yy = y + dy;
+            if ((dx || dy) && xx >= 0 && yy >= 0 && xx < n && yy < n) {
+              const j = yy * n + xx;
+              bright = snap.some((p, k) => Number.isFinite(p[j]) && p[j] >= white[k] * 0.5);
+            }
+          }
+        }
+        if (bright) {
+          for (let k = 0; k < 3; k++) out[k][i] = white[k];
+          count++;
+          changed = true;
+        }
+      }
+    }
+  }
+  return { planes: out, count };
 }
 
 export interface ColourLevels {
@@ -215,4 +262,64 @@ export function mapSpectrumCaveat(c: Cube, pmArcsecPerYear: number, variable: bo
       return "This star moves too fast for the map: it was in different places when different wavelengths were observed, so its map spectrum would lose light unevenly.";
   }
   return null;
+}
+
+// ---------------------------------------------------------------- explaining a colour
+
+/** Mean brightness inside each window (r, g, b) from (wavelength, flux) samples; null if a window has < 2. */
+export function windowShares(wl: number[], flux: number[], mix: Mix): [number, number, number] | null {
+  const mean = (w: Window) => {
+    const v = flux.filter((f, i) => Number.isFinite(f) && wl[i] >= w.lo && wl[i] <= w.hi);
+    return v.length >= 2 ? Math.max(0, v.reduce((a, b) => a + b, 0) / v.length) : NaN;
+  };
+  const out: [number, number, number] = [mean(mix.r), mean(mix.g), mean(mix.b)];
+  return out.every(Number.isFinite) && out.some((v) => v > 0) ? out : null;
+}
+
+/** Everyday colour name for an (r, g, b) brightness triple on one scale. */
+export function colourName([r, g, b]: [number, number, number]): string {
+  const mx = Math.max(r, g, b);
+  const mn = Math.min(r, g, b);
+  if (mx <= 0) return "black";
+  if ((mx - mn) / mx < 0.2) return "white";
+  const R = r / mx;
+  const G = g / mx;
+  const B = b / mx;
+  let h: number;
+  if (mx === r) h = (60 * ((G - B) / (1 - mn / mx)) + 360) % 360;
+  else if (mx === g) h = 60 * ((B - R) / (1 - mn / mx)) + 120;
+  else h = 60 * ((R - G) / (1 - mn / mx)) + 240;
+  if (h < 20 || h >= 350) return "red";
+  if (h < 45) return "orange";
+  if (h < 70) return "yellow";
+  if (h < 160) return "green";
+  if (h < 200) return "cyan";
+  if (h < 255) return "blue";
+  if (h < 290) return "purple";
+  if (h < 320) return "magenta";
+  return "pink";
+}
+
+const NAMES = { r: "red", g: "green", b: "blue" } as const;
+
+/**
+ * One or two sentences: what colour a source has in this view and why, from its own spectrum.
+ * `refs` are molecule positions to mention when a dim window contains one.
+ */
+export function whyColour(shares: [number, number, number], mix: Mix, refs: { label: string; wl: number }[]): string {
+  const name = colourName(shares);
+  const mx = Math.max(...shares);
+  const keys = ["r", "g", "b"] as const;
+  const rel = shares.map((s) => s / mx);
+  const fmt = (k: (typeof keys)[number]) => `${NAMES[k]} window (${mix[k].lo.toFixed(2)}–${mix[k].hi.toFixed(2)} µm)`;
+  if (name === "white") return "Looks white here: about equally bright in all three wavelength windows.";
+  const bright = keys.filter((_, i) => rel[i] >= 0.75);
+  const dim = keys.filter((_, i) => rel[i] < 0.5);
+  let s = `Looks ${name} here: brightest in the ${bright.map(fmt).join(" and the ")}`;
+  if (dim.length) {
+    s += `, dim in the ${dim.map(fmt).join(" and the ")}`;
+    const why = [...new Set(dim.flatMap((k) => refs.filter((r) => r.wl >= mix[k].lo - 0.05 && r.wl <= mix[k].hi + 0.05).map((r) => r.label)))];
+    if (why.length) s += `, where ${why.join(" and ")} absorb${why.length > 1 ? "" : "s"} light`;
+  }
+  return `${s}.`;
 }

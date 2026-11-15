@@ -15,7 +15,7 @@ export interface ViewState {
 
 export const DEFAULT_STATE: ViewState = {
   target: "barnard",
-  mode: "blink",
+  mode: "colour",
   band: 6,
   t1: 0,
   t2: 1,

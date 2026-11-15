@@ -83,7 +83,7 @@ The owner asked for SPHEREx's 102 colours, proof of accuracy, and accessibility,
 
 What came out:
 
-- **Colour mode** works from the cube window read straight from S3, and the brown dwarfs measurably turn magenta in the methane view. A first rule hiding map spectra for "fast movers" was too strict (it hid Eps Indi B); it now uses the aperture size.
+- **Colour mode** works from the cube window read straight from S3, and the brown dwarfs measurably turn pink in the methane view. A first rule hiding map spectra for "fast movers" was too strict (it hid Eps Indi B); it now uses the aperture size.
 - **Validation** turned out better than expected: fluxes match 2MASS/WISE within 3% (2–6% spread) even without an aperture correction, positions within 0.56″, motions within 1%.
 - **The pulsation was overstated:** "fades to half" compared different wavelengths. Divided by wavelength and compared visit by visit, the giant dims by about a third; the tour and docs were corrected.
 - **The chart descriptions first got two things wrong.** They called constant stars "variable" (wavelength trend and single-exposure noise) and read noise in empty sky as "dips". Both were fixed with tests.

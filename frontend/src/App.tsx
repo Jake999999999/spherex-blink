@@ -4,7 +4,8 @@ import { GAIA_G_LIMIT, SkyCanvas, formatHover, type HoverInfo, type SkyCanvasHan
 import { SpectrumPanel, type MapOverlay, type PanelTab } from "./components/SpectrumPanel";
 import { ColourMixer } from "./components/ColourMixer";
 import { Accuracy } from "./components/Accuracy";
-import { PRESETS, colourLevels, mainToCube, mapSpectrum, mapSpectrumCaveat, windowMean, type Mix } from "./lib/colour";
+import { PRESETS, blowOutSaturated, colourLevels, mainToCube, mapSpectrum, mapSpectrumCaveat, whyColour, windowMean, windowShares, type Mix } from "./lib/colour";
+import { ColourIntro } from "./components/ColourIntro";
 import { Tour } from "./components/Tour";
 import { availableSteps, type TourContext, type TourSetup } from "./lib/tour";
 import { framePlane, loadBundle, loadIndex, shortName, wisePlane, type Bundle, type IndexEntry } from "./lib/bundle";
@@ -17,7 +18,7 @@ import { DEFAULT_STATE, parseState, serializeState, type ViewState } from "./lib
 import { COLORMAPS, COLORMAP_LABELS, buildLut, type ColormapName } from "./gl/colormaps";
 import { formatMjdMonth, formatMjdRange, mjdToYear, propagate } from "./lib/astro";
 import { formatDec, formatRa, pixelToWorld, separationArcsec, worldToPixel } from "./lib/wcs";
-import { nearestSource } from "./lib/spectra";
+import { FLAG_OK, REFERENCE_BANDS, nearestSource, points } from "./lib/spectra";
 import { centroid, fitMotion } from "./lib/motion";
 import { stopSound } from "./lib/sonify";
 
@@ -89,7 +90,6 @@ export default function App() {
   // colour mode
   const [mix, setMix] = useState<Mix>(PRESETS[0].mix);
   const [presetId, setPresetId] = useState<string | null>(PRESETS[0].id);
-  const [colourScale, setColourScale] = useState<"balanced" | "physical">("balanced");
   const [mapPoint, setMapPoint] = useState<{ x: number; y: number; mx: number; my: number; ra: number; dec: number } | null>(null);
   const frameWant = useRef<TourSetup["frame"] | null>(null);
 
@@ -118,6 +118,10 @@ export default function App() {
         const tourAct = pending.current?.target === id ? pending.current : null;
         pending.current = null;
         setSelectedId(tourAct?.select ?? null);
+        // each target opens Colour mode with the preset that shows it best
+        const preset = PRESETS.find((p) => p.id === (tourAct?.preset ?? b.meta.colour_preset)) ?? PRESETS[0];
+        setPresetId(preset.id);
+        setMix(preset.mix);
         if (tourAct) {
           if (tourAct.tab) setTab(tourAct.tab);
           if (tourAct.playing !== undefined) setPlaying(tourAct.playing);
@@ -192,14 +196,18 @@ export default function App() {
 
   const cube = bundle?.cube ?? null;
   const isColour = state.mode === "colour" && !!cube;
-  const colourPlanes = useMemo(
-    () =>
-      cube && state.mode === "colour"
-        ? { planes: [windowMean(cube, mix.r), windowMean(cube, mix.g), windowMean(cube, mix.b)] as [Float32Array, Float32Array, Float32Array], n: cube.n }
-        : null,
-    [cube, mix, state.mode],
-  );
-  const colourLv = useMemo(() => (colourPlanes ? colourLevels(colourPlanes.planes, lo, hi, colourScale) : null), [colourPlanes, lo, hi, colourScale]);
+  // One brightness scale for all three colours ("true ratios"): a colour then means more light at that
+  // wavelength. Black at the sky level (median), white near the brightest star; the renderer stretches
+  // the combined brightness and keeps the ratios.
+  const colourView = useMemo(() => {
+    if (!cube || state.mode !== "colour") return null;
+    const raw = [windowMean(cube, mix.r), windowMean(cube, mix.g), windowMean(cube, mix.b)] as [Float32Array, Float32Array, Float32Array];
+    const lv = colourLevels(raw, 50, 99.7, "physical");
+    const blown = blowOutSaturated(raw, cube.n, lv.white);
+    return { planes: { planes: blown.planes, n: cube.n }, levels: lv, blownOut: blown.count };
+  }, [cube, mix, state.mode]);
+  const colourPlanes = colourView?.planes ?? null;
+  const colourLv = colourView?.levels ?? null;
   const cubeMid = cube && cube.desc.mjd_min !== null && cube.desc.mjd_max !== null ? (cube.desc.mjd_min + cube.desc.mjd_max) / 2 : undefined;
 
   const draw = {
@@ -291,6 +299,13 @@ export default function App() {
       if (a.tab) setTab(a.tab);
       if (a.playing !== undefined) setPlaying(a.playing);
       if (a.frame) frameWant.current = a.frame;
+      if (a.preset) {
+        const p = PRESETS.find((x) => x.id === a.preset);
+        if (p) {
+          setPresetId(p.id);
+          setMix(p.mix);
+        }
+      }
     },
     [tourSteps, bundle, set],
   );
@@ -381,6 +396,28 @@ export default function App() {
     return null;
   }, [cube, selected, mapPoint, bundle, cubeMid]);
 
+  // "Why does it look this colour?" from the source's own clean measurements (or the map spectrum)
+  const colourWhy = useMemo((): string | null => {
+    if (!isColour) return null;
+    let wl: number[] = [];
+    let fl: number[] = [];
+    if (selected && bundle?.spectra) {
+      const good = points(bundle.spectra, selected).filter((p) => p.flag === FLAG_OK);
+      wl = good.map((p) => p.wl);
+      fl = good.map((p) => p.flux);
+    } else if (mapOverlay?.spectrum) {
+      mapOverlay.spectrum.flux.forEach((f, i) => {
+        if (f !== null) {
+          wl.push(mapOverlay.spectrum!.wl[i]);
+          fl.push(f);
+        }
+      });
+    }
+    const shares = windowShares(wl, fl, mix);
+    if (!shares) return selected ? "Too bright (saturated) or too faint in these windows to say what colour it really is." : null;
+    return whyColour(shares, mix, REFERENCE_BANDS);
+  }, [isColour, selected, bundle, mapOverlay, mix]);
+
   const motion = useMemo(() => {
     if (!bundle || !selected) return null;
     const scale = bundle.meta.pixel_scale_arcsec;
@@ -427,7 +464,7 @@ export default function App() {
   // keyboard
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement | null;
+      const el = e.target instanceof HTMLElement ? e.target : null;
       // never steal keys from text fields, menus or sliders (the colour mixer uses the arrow keys)
       if (el && (el instanceof HTMLInputElement || el instanceof HTMLSelectElement || el instanceof HTMLTextAreaElement || el.isContentEditable || el.getAttribute("role") === "slider")) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -726,6 +763,8 @@ export default function App() {
                 source={selected}
                 title={mapPoint ? `Map point ${formatRa(mapPoint.ra)} ${formatDec(mapPoint.dec)}` : undefined}
                 map={mapOverlay}
+                colourWindows={isColour ? mix : null}
+                colourNote={colourWhy}
                 silent={SILENT}
                 epochs={m.epochs}
                 detectors={m.detectors}
@@ -797,8 +836,18 @@ export default function App() {
           </Section>
 
           {isColour ? (
-            <Section title="Colours" hint="Each colour of the picture is the average brightness in one wavelength window. Drag the windows, or focus one and use ← →.">
-              <div className="mb-3 grid grid-cols-2 gap-1">
+            <Section title="Colours" hint="Each colour of the picture is the average brightness in one wavelength window, all on one brightness scale. Drag the windows, or focus one and use ← →.">
+              <ColourIntro mix={mix} />
+              {m.colour_hint && (
+                <p className="mt-3 rounded-md bg-emerald-400/10 px-2.5 py-2 text-xs leading-snug text-emerald-100">
+                  <b className="text-emerald-50">What to look for: </b>
+                  {m.colour_hint}
+                </p>
+              )}
+              {(colourView?.blownOut ?? 0) > 0 && (
+                <p className="mt-2 text-[11px] text-slate-400">White patches are star centres too bright for SPHEREx to measure, not white stars.</p>
+              )}
+              <div className="mb-3 mt-3 grid grid-cols-2 gap-1">
                 {PRESETS.map((p) => (
                   <button
                     key={p.id}
@@ -822,24 +871,6 @@ export default function App() {
                   setPresetId(null);
                 }}
               />
-              <div className="mt-3 grid grid-cols-2 gap-1 rounded-lg bg-white/[0.04] p-1 text-xs">
-                {(
-                  [
-                    ["balanced", "Balanced", "each colour stretched on its own"],
-                    ["physical", "True ratios", "one brightness scale for all three"],
-                  ] as const
-                ).map(([v, l, d]) => (
-                  <button
-                    key={v}
-                    onClick={() => setColourScale(v)}
-                    aria-pressed={colourScale === v}
-                    title={d}
-                    className={`rounded-md py-1.5 ${colourScale === v ? "bg-white/10 text-white" : "text-slate-400"}`}
-                  >
-                    {l}
-                  </button>
-                ))}
-              </div>
             </Section>
           ) : (
             <Section title="Wavelength" hint="SPHEREx splits the infrared into six detectors. Longer wavelengths see cooler things.">

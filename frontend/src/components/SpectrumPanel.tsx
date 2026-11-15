@@ -3,7 +3,7 @@ import { Download, Square, Volume2, X } from "lucide-react";
 import { describeLightCurve, describeSpectrum, detrendByWavelength, playPlan, sonifyPlan, stopSound } from "../lib/sonify";
 import type { Epoch } from "../lib/bundle";
 import { FLAG_OK, REFERENCE_BANDS, points, preferRing, toCsv, type Measure, type Point, type Spectra, type SpectraSource } from "../lib/spectra";
-import type { MapSpectrum } from "../lib/colour";
+import type { MapSpectrum, Mix } from "../lib/colour";
 import { formatMjdRange, mjdToDate, mjdToYear } from "../lib/astro";
 import { formatNumber, logTicks, niceTicks, robustRange } from "../lib/ticks";
 
@@ -40,9 +40,13 @@ interface Props {
   children?: React.ReactNode; // extra tools (motion fit)
   /** ?silent: never make sound */
   silent?: boolean;
+  /** Colour mode: the three wavelength windows, shaded on the spectrum */
+  colourWindows?: Mix | null;
+  /** Colour mode: why this source has the colour it has */
+  colourNote?: string | null;
 }
 
-export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, band, tab, onTab, onClose, children, silent = false }: Props) {
+export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, band, tab, onTab, onClose, children, silent = false, colourWindows = null, colourNote = null }: Props) {
   const pts = useMemo(() => (spectra && source ? points(spectra, source) : []), [spectra, source]);
   const nGood = pts.filter((p) => p.flag === FLAG_OK).length;
   const [lcBand, setLcBand] = useState(band);
@@ -160,13 +164,21 @@ export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, 
         {pts.length === 0 && !map?.spectrum ? (
           <p className="p-4 text-xs text-slate-400">No usable measurements here.</p>
         ) : shownTab === "spectrum" ? (
-          <SpectrumChart pts={pts} epochs={epochs} detectors={detectors} logY={logY} map={map?.spectrum ? { ...map.spectrum, label: map.label } : null} />
+          <SpectrumChart
+            pts={pts}
+            epochs={epochs}
+            detectors={detectors}
+            logY={logY}
+            map={map?.spectrum ? { ...map.spectrum, label: map.label } : null}
+            windows={colourWindows}
+          />
         ) : shownTab === "lightcurve" ? (
           <LightCurveChart pts={lcPts.filter((p) => p.det === lcBand)} det={detectors[lcBand - 1]} />
         ) : (
           <PointTable pts={pts} />
         )}
       </div>
+      {shownTab === "spectrum" && colourNote && <p className="mt-1 text-xs font-medium text-emerald-200">{colourNote}</p>}
       {words && <p className="mt-1 text-xs text-slate-200">{words}</p>}
       <footer className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
         {shownTab === "spectrum" && (
@@ -269,6 +281,8 @@ function nearest(pts: Point[], sx: (p: Point) => number, sy: (p: Point) => numbe
 // ------------------------------------------------------------------ spectrum
 
 const MAP_COLOUR = "#f0efec";
+const WIN_FILL = { r: "rgba(239,68,68,0.16)", g: "rgba(34,197,94,0.16)", b: "rgba(59,130,246,0.18)" };
+const WIN_TEXT = { r: "#fca5a5", g: "#86efac", b: "#93c5fd" };
 
 function SpectrumChart({
   pts,
@@ -276,12 +290,14 @@ function SpectrumChart({
   detectors,
   logY,
   map,
+  windows = null,
 }: {
   pts: Point[];
   epochs: Epoch[];
   detectors: Props["detectors"];
   logY: boolean;
   map: (MapSpectrum & { label: string }) | null;
+  windows?: Mix | null;
 }) {
   const [ref, { w, h }] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<Hover | null>(null);
@@ -351,6 +367,21 @@ function SpectrumChart({
               </text>
             </g>
           ))}
+          {windows &&
+            (["b", "g", "r"] as const).map((k) => (
+              <g key={`win-${k}`}>
+                <rect
+                  x={sx(windows[k].lo)}
+                  y={M.t}
+                  width={Math.max(2, sx(windows[k].hi) - sx(windows[k].lo))}
+                  height={ih}
+                  fill={WIN_FILL[k]}
+                />
+                <text x={(sx(windows[k].lo) + sx(windows[k].hi)) / 2} y={M.t + 12} textAnchor="middle" className="text-[10px] font-semibold" fill={WIN_TEXT[k]}>
+                  {k.toUpperCase()}
+                </text>
+              </g>
+            ))}
           {REFERENCE_BANDS.map((b, i) => (
             <g key={`${b.label}${b.wl}`}>
               <line x1={sx(b.wl)} x2={sx(b.wl)} y1={M.t} y2={M.t + ih} stroke="rgba(148,163,184,0.25)" strokeDasharray="2 4" />

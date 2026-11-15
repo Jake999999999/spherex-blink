@@ -44,7 +44,7 @@ def write_index(out_root: Path = OUT_ROOT) -> list[dict]:
     return found
 
 
-TEXT_FIELDS = ("name", "tagline", "blurb", "notes", "status", "default_mode", "default_band", "variable")
+TEXT_FIELDS = ("name", "tagline", "blurb", "notes", "status", "default_mode", "default_band", "variable", "colour_preset", "colour_hint")
 
 
 def retext(target_id: str, out_root: Path = OUT_ROOT) -> bool:
@@ -330,6 +330,8 @@ def bake(target_id: str, client: httpx.Client | None = None, out_root: Path = OU
             "wise": [{k: v for k, v in w.items() if k != "image"} for w in wise_frames],
             "cube": cube_desc,
             "variable": t.variable,
+            "colour_preset": t.colour_preset,
+            "colour_hint": t.colour_hint,
             "layout": layout,
             "provenance": {
                 "label": f"IRSA DR1+QR3 (baked {dt.date.today().isoformat()})",

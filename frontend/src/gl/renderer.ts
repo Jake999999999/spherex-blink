@@ -48,69 +48,50 @@ float stretch01(float x) {
   return uStretch == 1 ? x : asinh(x * uBeta) / asinh(uBeta);
 }
 
-float fetchPx(int layer, ivec2 p) {
-  ivec2 s = textureSize(uFrames, 0).xy;
-  return texelFetch(uFrames, ivec3(clamp(p, ivec2(0), s - 1), layer), 0).r;
-}
-
-float fetchC(int layer, ivec2 p) {
-  ivec2 s = textureSize(uColour, 0).xy;
-  return texelFetch(uColour, ivec3(clamp(p, ivec2(0), s - 1), layer), 0).r;
-}
-
-vec4 crWeights(float t);
-
-// Same interpolation as sampleLayer, on the colour planes.
-float sampleColour(int layer, vec2 uv) {
-  vec2 s = vec2(textureSize(uColour, 0).xy);
-  ivec2 nearest = ivec2(floor(uv * s));
-  if (uSmooth == 0) return fetchC(layer, nearest);
-  vec2 p = uv * s - 0.5;
-  ivec2 i = ivec2(floor(p));
-  vec2 f = p - floor(p);
-  vec4 wx = crWeights(f.x);
-  vec4 wy = crWeights(f.y);
-  float acc = 0.0;
-  for (int y = 0; y < 4; y++) {
-    float row = 0.0;
-    for (int x = 0; x < 4; x++) {
-      float v = fetchC(layer, i + ivec2(x - 1, y - 1));
-      if (v < -1e29) return fetchC(layer, nearest);
-      row += v * wx[x];
-    }
-    acc += row * wy[y];
-  }
-  return acc;
-}
-
 vec4 crWeights(float t) {
   float t2 = t * t, t3 = t2 * t;
   return vec4(-0.5 * t3 + t2 - 0.5 * t, 1.5 * t3 - 2.5 * t2 + 1.0, -1.5 * t3 + 2.0 * t2 + 0.5 * t, 0.5 * t3 - 0.5 * t2);
 }
 
-// Display interpolation only: smooths the look of coarse 6.15" pixels. Next to missing data it
-// falls back to the raw pixel so no value is invented across a gap.
-float sampleLayer(int layer, vec2 uv) {
-  vec2 s = vec2(textureSize(uFrames, 0).xy);
-  ivec2 nearest = ivec2(floor(uv * s));
-  if (uSmooth == 0) return fetchPx(layer, nearest);
-  vec2 p = uv * s - 0.5;
+// Display interpolation only (the measurements always use raw pixels). Catmull-Rom bicubic, with two
+// guards that matter on coarse data: the result is clamped to the range of the four nearest pixels
+// (no dark rings or coloured fringes around bright stars), and missing pixels are skipped with the
+// remaining weights renormalised (no hard squares next to gaps). A missing pixel stays missing.
+float smoothSample(sampler2DArray tex, int layer, vec2 uv) {
+  ivec2 s = textureSize(tex, 0).xy;
+  vec2 sf = vec2(s);
+  ivec2 nearest = clamp(ivec2(floor(uv * sf)), ivec2(0), s - 1);
+  float vn = texelFetch(tex, ivec3(nearest, layer), 0).r;
+  if (uSmooth == 0 || vn < -1e29) return vn;
+  vec2 p = uv * sf - 0.5;
   ivec2 i = ivec2(floor(p));
   vec2 f = p - floor(p);
   vec4 wx = crWeights(f.x);
   vec4 wy = crWeights(f.y);
   float acc = 0.0;
+  float wsum = 0.0;
+  float lo = 1e30;
+  float hi = -1e30;
   for (int y = 0; y < 4; y++) {
-    float row = 0.0;
     for (int x = 0; x < 4; x++) {
-      float v = fetchPx(layer, i + ivec2(x - 1, y - 1));
-      if (v < -1e29) return fetchPx(layer, nearest);
-      row += v * wx[x];
+      ivec2 q = clamp(i + ivec2(x - 1, y - 1), ivec2(0), s - 1);
+      float v = texelFetch(tex, ivec3(q, layer), 0).r;
+      if (v < -1e29) continue;
+      float w = wx[x] * wy[y];
+      acc += v * w;
+      wsum += w;
+      if (x >= 1 && x <= 2 && y >= 1 && y <= 2) {
+        lo = min(lo, v);
+        hi = max(hi, v);
+      }
     }
-    acc += row * wy[y];
   }
-  return acc;
+  if (wsum < 0.5 || hi < lo) return vn;
+  return clamp(acc / wsum, lo, hi);
 }
+
+float sampleLayer(int layer, vec2 uv) { return smoothSample(uFrames, layer, uv); }
+float sampleColour(int layer, vec2 uv) { return smoothSample(uColour, layer, uv); }
 
 void main() {
   vec3 col;
@@ -119,8 +100,18 @@ void main() {
     if (any(lessThan(cuv, vec2(0.0))) || any(greaterThan(cuv, vec2(1.0)))) { outColor = vec4(uNoData, 1.0); return; }
     vec3 v = vec3(sampleColour(0, cuv), sampleColour(1, cuv), sampleColour(2, cuv));
     if (any(lessThan(v, vec3(-1e29)))) { outColor = vec4(uNoData, 1.0); return; }
-    vec3 x = (v - uCBlack) / max(uCWhite - uCBlack, vec3(1e-12));
-    col = vec3(stretch01(x.r), stretch01(x.g), stretch01(x.b));
+    vec3 x = max((v - uCBlack) / max(uCWhite - uCBlack, vec3(1e-12)), vec3(0.0));
+    if (uStretch == 1) {
+      col = clamp(x, 0.0, 1.0);
+    } else {
+      // Lupton et al. (2004): stretch the combined brightness, keep the colour ratios. Faint sky noise
+      // stays dark and grey instead of becoming coloured speckles; stars keep their true colour.
+      float I = (x.r + x.g + x.b) / 3.0;
+      float k = I > 1e-6 ? asinh(uBeta * I) / (asinh(uBeta) * I) : 0.0;
+      col = x * k;
+      float m = max(col.r, max(col.g, col.b));
+      if (m > 1.0) col /= m; // saturate brightness, not hue
+    }
     outColor = vec4(col, 1.0);
     return;
   }

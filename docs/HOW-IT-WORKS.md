@@ -133,7 +133,7 @@ For each frame in the blink (including WISE 2010), the star's centre is found by
 
 ### 3.5 Colour mode (`src/lib/colour.ts`, `src/components/ColourMixer.tsx`)
 
-Three wavelength windows (red, green, blue) each become one colour: the mean of the map channels inside the window, skipping blank channels. *Balanced* stretches each colour on its own; *True ratios* uses one brightness scale, so a colour means more light at that wavelength. Presets: short-to-long, methane (green on the 3.3 µm band), water (green on 1.4 µm), warm dust. In true ratios with the methane preset, Eps Indi B measures R 0.69 / G 0.09 / B 0.22 (magenta) while an ordinary star next to it measures R 0.23 / G 0.35 / B 0.43.
+Three wavelength windows (red, green, blue) each become one colour: the mean of the map channels inside the window, skipping blank channels. *Balanced* stretches each colour on its own; *True ratios* uses one brightness scale, so a colour means more light at that wavelength. Presets: short-to-long, methane (green on the 3.3 µm band), water (green on 1.4 µm), warm dust. In true ratios with the methane preset, Eps Indi B measures R 0.69 / G 0.09 / B 0.22 (pink) while an ordinary star next to it measures R 0.23 / G 0.35 / B 0.43.
 
 Clicking in colour mode gives the **map spectrum** of that spot: the same 15.4″ aperture and local-sky subtraction as the single-exposure points, so both share an axis. Because each map channel was observed on a different date, the map spectrum is hidden for variable stars and for stars that move more than a quarter of the aperture radius from their mid-span position (Barnard's Star), with a note saying why.
 
