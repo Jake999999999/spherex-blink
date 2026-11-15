@@ -12,6 +12,11 @@ import httpx
 from .irsa import CACHE_ROOT, META_RETRY, FetchError, get_with_retry
 
 GAIA_TAP = "https://gea.esac.esa.int/tap-server/tap/sync"
+GAIA_MIRRORS = [
+    GAIA_TAP,
+    "https://gaia.ari.uni-heidelberg.de/tap/sync",
+    "https://gaia.aip.de/tap/sync",
+]
 IRSA_TAP = "https://irsa.ipac.caltech.edu/TAP/sync"
 VIZIER_TAP = "https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync"
 VIZIER_CATALOGS: dict[str, dict] = {
@@ -200,11 +205,21 @@ def _cached(name: str, fn):
     return val
 
 
+def _gaia_tap_with_mirrors(client: httpx.Client, adql: str) -> list[dict]:
+    last_err: Exception | None = None
+    for url in GAIA_MIRRORS:
+        try:
+            return _tap_csv(client, url, adql, tries=1)
+        except (FetchError, httpx.TimeoutException, httpx.TransportError) as e:
+            last_err = e
+    raise last_err if last_err is not None else FetchError("All Gaia TAP mirrors failed")
+
+
 def source(client: httpx.Client, source_id: str) -> dict:
     def q():
         try:
-            rows = _tap_csv(client, GAIA_TAP, f"SELECT {COLUMNS} FROM gaiadr3.gaia_source WHERE source_id = {int(source_id)}")
-        except FetchError:
+            rows = _gaia_tap_with_mirrors(client, f"SELECT {COLUMNS} FROM gaiadr3.gaia_source WHERE source_id = {int(source_id)}")
+        except (FetchError, httpx.TimeoutException, httpx.TransportError):
             rows = _gator_gaia(client, constraint=f"source_id={int(source_id)}")
         if not rows:
             raise LookupError(f"Gaia DR3 {source_id} not found")
@@ -221,9 +236,9 @@ def cone(client: httpx.Client, ra: float, dec: float, radius_deg: float, gmax: f
             f"AND phot_g_mean_mag < {gmax} ORDER BY phot_g_mean_mag"
         )
         try:
-            rows = _tap_csv(client, GAIA_TAP, adql)
-        except FetchError:
-            # ESA's archive was unreachable (2026-11-15); IRSA serves the same Gaia DR3 table
+            rows = _gaia_tap_with_mirrors(client, adql)
+        except (FetchError, httpx.TimeoutException, httpx.TransportError):
+            # All Gaia TAP mirrors unreachable; fall back to IRSA Gator
             rows = [r for r in _gator_gaia(client, ra=ra, dec=dec, radius_arcsec=radius_deg * 3600) if (_num(r.get("phot_g_mean_mag")) or 99) < gmax]
             rows.sort(key=lambda r: _num(r.get("phot_g_mean_mag")) or 99)
             rows = rows[:limit]

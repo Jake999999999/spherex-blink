@@ -14,12 +14,20 @@ interface Props {
   onUpstream502?: (active: boolean) => void;
 }
 
-const BROWSER_CHECKS: { id: string; label: string; url: () => string }[] = [
-  { id: "aws_s3", label: "AWS S3 (SPHEREx)", url: () => "https://nasa-irsa-spherex.s3.amazonaws.com/?list-type=2&max-keys=1" },
-  { id: "esa_gaia", label: "ESA Gaia DR3", url: () => "https://gea.esac.esa.int/tap-server/tap/availability" },
-  { id: "vizier_tap", label: "VizieR TAP (Mirror)", url: () => "https://tapvizier.cds.unistra.fr/TAPVizieR/tap/availability" },
-  { id: "cds_sesame", label: "CDS Sesame (Names)", url: () => "https://cdsweb.u-strasbg.fr/cgi-bin/nph-sesame/-oI/A?Vega" },
-  { id: "data_mirror", label: "Data Repo Mirror", url: () => `${resolveRemoteDataRoot()}/index.json` },
+const BROWSER_CHECKS: { id: string; label: string; urls: () => string[] }[] = [
+  { id: "aws_s3", label: "AWS S3 (SPHEREx)", urls: () => ["https://nasa-irsa-spherex.s3.amazonaws.com/?list-type=2&max-keys=1"] },
+  { id: "esa_gaia", label: "Gaia DR3 (TAP)", urls: () => ["https://gea.esac.esa.int/tap-server/tap/availability", "https://gaia.ari.uni-heidelberg.de/tap/availability"] },
+  { id: "vizier_tap", label: "VizieR TAP (Mirror)", urls: () => ["https://tapvizier.cds.unistra.fr/TAPVizieR/tap/availability"] },
+  {
+    id: "cds_sesame",
+    label: "CDS Sesame (Names)",
+    urls: () => [
+      "https://cdsweb.u-strasbg.fr/cgi-bin/nph-sesame/-oI/A?Vega",
+      "https://vizier.cfa.harvard.edu/viz-bin/nph-sesame/-oI/SNV?Vega",
+      "https://vizier.idia.ac.za/viz-bin/nph-sesame/-oI/SNV?Vega",
+    ],
+  },
+  { id: "data_mirror", label: "Data Repo Mirror", urls: () => [`${resolveRemoteDataRoot()}/index.json`] },
 ];
 
 export function DataSourceStatus({ serverOnline, onUpstream502 }: Props) {
@@ -48,27 +56,35 @@ export function DataSourceStatus({ serverOnline, onUpstream502 }: Props) {
         }
       }
 
-      // Browser / GitHub Pages mode: probe CORS-enabled endpoints directly; note IRSA SIA lacks CORS headers.
+      // Browser / GitHub Pages mode: probe CORS-enabled endpoints directly (with mirrors); note IRSA SIA lacks CORS headers.
       const results = await Promise.all(
         BROWSER_CHECKS.map(async (c): Promise<SourceHealth> => {
-          const t0 = performance.now();
-          try {
-            const res = await fetch(c.url(), { signal: AbortSignal.timeout(5000) });
-            const ms = Math.round(performance.now() - t0);
-            return {
-              id: c.id,
-              label: c.label,
-              state: res.ok ? "up" : "down",
-              detail: `HTTP ${res.status} · ${ms}ms`,
-            };
-          } catch (e) {
-            return {
-              id: c.id,
-              label: c.label,
-              state: "down",
-              detail: e instanceof Error && e.name === "TimeoutError" ? "Timed out" : "Unreachable",
-            };
+          const urls = c.urls();
+          let lastDetail = "Unreachable";
+          for (let i = 0; i < urls.length; i++) {
+            const t0 = performance.now();
+            try {
+              const res = await fetch(urls[i], { signal: AbortSignal.timeout(5000) });
+              const ms = Math.round(performance.now() - t0);
+              if (res.ok) {
+                return {
+                  id: c.id,
+                  label: c.label,
+                  state: "up",
+                  detail: `${i > 0 ? "Mirror " : ""}HTTP ${res.status} · ${ms}ms`,
+                };
+              }
+              lastDetail = `HTTP ${res.status} · ${ms}ms`;
+            } catch (e) {
+              lastDetail = e instanceof Error && e.name === "TimeoutError" ? "Timed out" : "Unreachable";
+            }
           }
+          return {
+            id: c.id,
+            label: c.label,
+            state: "down",
+            detail: lastDetail,
+          };
         }),
       );
       results.unshift({

@@ -56,34 +56,67 @@ FILES = {
     "neowise.bin": "application/octet-stream",
 }
 SESAME = "https://cds.unistra.fr/cgi-bin/nph-sesame/-oxp/SNV"
+SESAME_MIRRORS = [
+    SESAME,
+    "https://vizier.cfa.harvard.edu/viz-bin/nph-sesame/-oxp/SNV",
+    "https://vizier.idia.ac.za/viz-bin/nph-sesame/-oxp/SNV",
+]
 BACKEND = Path(__file__).resolve().parents[1]
 
-PROBE_ENDPOINTS: list[tuple[str, str, str]] = [
-    ("irsa_sia", "IRSA SIA (SPHEREx)", "https://irsa.ipac.caltech.edu/SIA?COLLECTION=spherex_dr1&POS=circle%2043.25%2016.88%200.01"),
-    ("irsa_ibe", "IRSA IBE (Cutouts)", "https://irsa.ipac.caltech.edu/ibe/data/wise/allwise/p3am_cdd/13/1342/1342m076_ac51/1342m076_ac51-w1-int-3.fits?center=133.795,-7.245&size=0.01deg"),
-    ("irsa_tap", "IRSA TAP", "https://irsa.ipac.caltech.edu/TAP/sync?QUERY=SELECT+TOP+1+*+FROM+TAP_SCHEMA.tables&FORMAT=json"),
-    ("aws_s3", "AWS S3 (SPHEREx)", "https://nasa-irsa-spherex.s3.amazonaws.com/?list-type=2&max-keys=1"),
-    ("esa_gaia", "ESA Gaia DR3", "https://gea.esac.esa.int/tap-server/tap/availability"),
-    ("vizier_tap", "VizieR TAP (Mirror)", "https://tapvizier.cds.unistra.fr/TAPVizieR/tap/availability"),
-    ("cds_sesame", "CDS Sesame (Names)", "https://cdsweb.u-strasbg.fr/cgi-bin/nph-sesame/-oI/A?Vega"),
+PROBE_ENDPOINTS: list[tuple[str, str, list[str]]] = [
+    ("irsa_sia", "IRSA SIA (SPHEREx)", ["https://irsa.ipac.caltech.edu/SIA?COLLECTION=spherex_dr1&POS=circle%2043.25%2016.88%200.01"]),
+    ("irsa_ibe", "IRSA IBE (Cutouts)", ["https://irsa.ipac.caltech.edu/ibe/data/wise/allwise/p3am_cdd/13/1342/1342m076_ac51/1342m076_ac51-w1-int-3.fits?center=133.795,-7.245&size=0.01deg"]),
+    ("irsa_tap", "IRSA TAP", ["https://irsa.ipac.caltech.edu/TAP/sync?QUERY=SELECT+TOP+1+*+FROM+TAP_SCHEMA.tables&FORMAT=json"]),
+    ("aws_s3", "AWS S3 (SPHEREx)", ["https://nasa-irsa-spherex.s3.amazonaws.com/?list-type=2&max-keys=1"]),
+    (
+        "esa_gaia",
+        "Gaia DR3 (TAP)",
+        [
+            "https://gea.esac.esa.int/tap-server/tap/availability",
+            "https://gaia.ari.uni-heidelberg.de/tap/availability",
+            "https://gaia.aip.de/tap/availability",
+        ],
+    ),
+    ("vizier_tap", "VizieR TAP (Mirror)", ["https://tapvizier.cds.unistra.fr/TAPVizieR/tap/availability"]),
+    (
+        "cds_sesame",
+        "CDS Sesame (Names)",
+        [
+            "https://cdsweb.u-strasbg.fr/cgi-bin/nph-sesame/-oI/A?Vega",
+            "https://vizier.cfa.harvard.edu/viz-bin/nph-sesame/-oI/A?Vega",
+            "https://vizier.idia.ac.za/viz-bin/nph-sesame/-oI/A?Vega",
+        ],
+    ),
 ]
 
 
 def probe_data_sources(timeout: float = 5.0) -> list[dict]:
-    """Concurrently check upstream astronomy data sources and return status + latency."""
+    """Concurrently check upstream astronomy data sources (with official mirrors) and return status + latency."""
     from concurrent.futures import ThreadPoolExecutor
 
-    def check(item: tuple[str, str, str]) -> dict:
-        sid, label, url = item
-        t0 = time.monotonic()
-        try:
-            with httpx.Client(timeout=timeout, follow_redirects=True, headers={"User-Agent": irsa.USER_AGENT}) as c:
-                r = c.get(url)
-            ms = round((time.monotonic() - t0) * 1000)
-            return {"id": sid, "label": label, "ok": 200 <= r.status_code < 400, "status": r.status_code, "ms": ms}
-        except Exception as e:
-            ms = round((time.monotonic() - t0) * 1000)
-            return {"id": sid, "label": label, "ok": False, "status": type(e).__name__, "ms": ms}
+    def check(item: tuple[str, str, list[str]]) -> dict:
+        sid, label, urls = item
+        last_status: int | str = "Unknown"
+        last_ms = 0
+        with httpx.Client(timeout=timeout, follow_redirects=True, headers={"User-Agent": irsa.USER_AGENT}) as c:
+            for idx, url in enumerate(urls):
+                t0 = time.monotonic()
+                try:
+                    r = c.get(url)
+                    last_ms = round((time.monotonic() - t0) * 1000)
+                    last_status = r.status_code
+                    if 200 <= r.status_code < 400:
+                        return {
+                            "id": sid,
+                            "label": label,
+                            "ok": True,
+                            "status": f"Mirror {r.status_code}" if idx > 0 else r.status_code,
+                            "ms": last_ms,
+                        }
+                except Exception as e:
+                    last_ms = round((time.monotonic() - t0) * 1000)
+                    last_status = type(e).__name__
+        return {"id": sid, "label": label, "ok": False, "status": last_status, "ms": last_ms}
 
     with ThreadPoolExecutor(max_workers=len(PROBE_ENDPOINTS)) as pool:
         return list(pool.map(check, PROBE_ENDPOINTS))
@@ -308,8 +341,17 @@ def resolve_name(name: str) -> dict:
         raise ValueError("name must be 1-64 characters")
     if name in _resolve_cache:
         return _resolve_cache[name]
-    with httpx.Client(timeout=20, headers={"User-Agent": irsa.USER_AGENT}, follow_redirects=True) as c:
-        raw = irsa.get_with_retry(c, f"{SESAME}?{urllib.parse.quote(name)}", tries=3).decode("utf-8", "replace")
+    raw = None
+    last_err: Exception | None = None
+    with httpx.Client(timeout=8, headers={"User-Agent": irsa.USER_AGENT}, follow_redirects=True) as c:
+        for base in SESAME_MIRRORS:
+            try:
+                raw = irsa.get_with_retry(c, f"{base}?{urllib.parse.quote(name)}", tries=1).decode("utf-8", "replace")
+                break
+            except Exception as e:
+                last_err = e
+    if raw is None:
+        raise last_err if last_err is not None else LookupError(f"name lookup failed for “{name}”")
     ra = re.search(r"<jradeg>\s*([-\d.eE+]+)\s*</jradeg>", raw)
     dec = re.search(r"<jdedeg>\s*([-\d.eE+]+)\s*</jdedeg>", raw)
     if not (ra and dec):

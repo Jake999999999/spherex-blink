@@ -35,11 +35,34 @@ export function startBrowserBuild(req: FieldRequest, onProgress: (p: Progress) =
   };
 }
 
-/** CDS Sesame (SIMBAD/NED/VizieR) name lookup, straight from the browser (it allows cross-origin requests). */
+const SESAME_MIRRORS = [
+  "https://cds.unistra.fr/cgi-bin/nph-sesame/-oI/SNV",
+  "https://vizier.cfa.harvard.edu/viz-bin/nph-sesame/-oI/SNV",
+  "https://vizier.idia.ac.za/viz-bin/nph-sesame/-oI/SNV",
+];
+
+/** CDS Sesame (SIMBAD/NED/VizieR) name lookup with official CfA/IDIA mirror fallbacks (all support CORS). */
 export async function resolveNameInBrowser(name: string, signal?: AbortSignal): Promise<{ name: string; ra: number; dec: number }> {
-  const r = await fetch(`https://cds.unistra.fr/cgi-bin/nph-sesame/-oI/SNV?${encodeURIComponent(name.slice(0, 64))}`, { signal });
-  if (!r.ok) throw new Error(`name lookup failed (HTTP ${r.status})`);
-  const text = (await r.text()).slice(0, 100_000);
+  const q = encodeURIComponent(name.slice(0, 64));
+  let text = "";
+  let lastErr: unknown = null;
+  for (const base of SESAME_MIRRORS) {
+    try {
+      const timeoutSig = AbortSignal.timeout(6000);
+      const sig = signal ? AbortSignal.any([signal, timeoutSig]) : timeoutSig;
+      const r = await fetch(`${base}?${q}`, { signal: sig });
+      if (!r.ok) {
+        lastErr = new Error(`name lookup failed (HTTP ${r.status})`);
+        continue;
+      }
+      text = (await r.text()).slice(0, 100_000);
+      break;
+    } catch (e) {
+      if (signal?.aborted) throw e;
+      lastErr = e;
+    }
+  }
+  if (!text) throw lastErr instanceof Error ? lastErr : new Error("name lookup failed on all Sesame mirrors");
   const m = /^%J\s+([-+]?\d+(?:\.\d+)?)\s+([-+]?\d+(?:\.\d+)?)/m.exec(text);
   if (!m) throw new Error(`“${name}” wasn't found in SIMBAD, NED or VizieR.`);
   const ra = Number(m[1]);
