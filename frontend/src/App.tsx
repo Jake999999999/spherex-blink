@@ -259,14 +259,25 @@ export default function App() {
   }, [bundle, step, lo, hi]);
 
   const diffOk = bundle && bandEpochs.includes(state.t1) && bandEpochs.includes(state.t2) && state.t1 !== state.t2;
-  const diffData = useMemo(() => {
+  const diffState = useMemo(() => {
     if (!bundle || !diffOk) return null;
-    // S2: wavelength-matched frames when the bundle has them, so a star's colour can't fake a change
+    const plain = subtract(framePlane(bundle, state.t2, state.band), framePlane(bundle, state.t1, state.band));
+    // S2: wavelength-matched frames when the bundle has them and channel overlap covers most of the field
     const m2 = matchedPlane(bundle, state.t2, state.band);
     const m1 = matchedPlane(bundle, state.t1, state.band);
-    if (m2 && m1) return subtract(m2, m1);
-    return subtract(framePlane(bundle, state.t2, state.band), framePlane(bundle, state.t1, state.band));
+    if (m2 && m1) {
+      const matched = subtract(m2, m1);
+      let plainN = 0;
+      let matchedN = 0;
+      for (let i = 0; i < plain.length; i++) {
+        if (Number.isFinite(plain[i])) plainN++;
+        if (Number.isFinite(matched[i])) matchedN++;
+      }
+      if (matchedN >= 0.6 * plainN) return { data: matched, matched: true };
+    }
+    return { data: plain, matched: false };
   }, [bundle, diffOk, state.t1, state.t2, state.band]);
+  const diffData = diffState?.data ?? null;
   const limit = useMemo(() => (diffData ? diffLimit(diffData, diffPct) : 1), [diffData, diffPct]);
 
   const isDiff = state.mode === "diff" && !!diffData;
@@ -274,7 +285,7 @@ export default function App() {
   isDiffRef.current = isDiff;
   const levels = step?.kind === "wise" && wiseLevels ? wiseLevels : spxLevels;
 
-  const hasMatched = !!bundle?.meta.layout.matched;
+  const hasMatched = diffState ? diffState.matched : !!bundle?.meta.layout.matched;
   // Colour from our own 6.15" map (twice as sharp) unless the visitor picks NASA's archive map
   // contamination flags for the frame on screen (the later visit in a difference)
   const flagEpoch = state.mode === "diff" ? state.t2 : step?.kind === "spherex" ? step.epoch : -1;

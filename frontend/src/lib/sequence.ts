@@ -33,9 +33,9 @@ export function stepPlane(b: Bundle, s: Step, detector: number): Float32Array {
  * brightest neighbour, growing inward a few passes. Field-edge NaNs (next to faint sky) stay empty.
  * The original data is untouched; hover readouts and photometry still see NaN.
  */
-export function fillSaturated(plane: Float32Array, w: number, h: number, passes = 8): Float32Array {
+export function fillSaturated(plane: Float32Array, w: number, h: number, passes = 8, symmetric = false, seedMask?: Uint8Array): Float32Array {
   const finite: number[] = [];
-  for (let i = 0; i < plane.length; i++) if (Number.isFinite(plane[i])) finite.push(plane[i]);
+  for (let i = 0; i < plane.length; i++) if (Number.isFinite(plane[i])) finite.push(symmetric ? Math.abs(plane[i]) : plane[i]);
   if (!finite.length) return plane;
   finite.sort((a, b) => a - b);
   const thresh = finite[Math.floor(0.995 * (finite.length - 1))];
@@ -47,18 +47,25 @@ export function fillSaturated(plane: Float32Array, w: number, h: number, passes 
       for (let x = 0; x < w; x++) {
         const i = y * w + x;
         if (Number.isFinite(cur[i])) continue;
-        let best = -Infinity;
+        let best = 0;
+        let bestMag = -Infinity;
         for (let dy = -1; dy <= 1; dy++) {
           for (let dx = -1; dx <= 1; dx++) {
             const xx = x + dx;
             const yy = y + dy;
             if ((dx || dy) && xx >= 0 && yy >= 0 && xx < w && yy < h) {
               const v = cur[yy * w + xx];
-              if (Number.isFinite(v) && v > best) best = v;
+              if (Number.isFinite(v)) {
+                const mag = symmetric ? Math.abs(v) : v;
+                if (mag > bestMag) {
+                  bestMag = mag;
+                  best = v;
+                }
+              }
             }
           }
         }
-        if (best >= thresh) {
+        if (bestMag > -Infinity && (bestMag >= thresh || seedMask?.[i])) {
           next[i] = best;
           changed = true;
         }
@@ -72,10 +79,32 @@ export function fillSaturated(plane: Float32Array, w: number, h: number, passes 
 
 export function allPlanes(b: Bundle): Float32Array[] {
   const planes: Float32Array[] = [];
-  for (let e = 0; e < b.meta.epochs.length; e++) for (let d = 1; d <= 6; d++) planes.push(fillSaturated(framePlane(b, e, d), b.width, b.height));
+  const filledFrames: Float32Array[] = [];
+  const rawFrames: Float32Array[] = [];
+  for (let e = 0; e < b.meta.epochs.length; e++) {
+    for (let d = 1; d <= 6; d++) {
+      const raw = framePlane(b, e, d);
+      const filled = fillSaturated(raw, b.width, b.height);
+      rawFrames.push(raw);
+      filledFrames.push(filled);
+      planes.push(filled);
+    }
+  }
   for (let i = 0; i < b.meta.wise.length; i++) planes.push(fillSaturated(wisePlane(b, i), b.width, b.height));
-  // S2 matched frames after the WISE ones (fill saturated star cores before A-B subtraction so cores don't turn black)
-  if (b.meta.layout.matched) for (let e = 0; e < b.meta.epochs.length; e++) for (let d = 1; d <= 6; d++) planes.push(fillSaturated(matchedPlane(b, e, d)!, b.width, b.height));
+  // S2 matched frames after the WISE ones (fill saturated star cores—positive, negative, or ~0—before A-B subtraction)
+  if (b.meta.layout.matched) {
+    let idx = 0;
+    for (let e = 0; e < b.meta.epochs.length; e++) {
+      for (let d = 1; d <= 6; d++) {
+        const raw = rawFrames[idx];
+        const filled = filledFrames[idx];
+        const seedMask = new Uint8Array(raw.length);
+        for (let k = 0; k < raw.length; k++) if (!Number.isFinite(raw[k]) && Number.isFinite(filled[k])) seedMask[k] = 1;
+        planes.push(fillSaturated(matchedPlane(b, e, d)!, b.width, b.height, 8, true, seedMask));
+        idx++;
+      }
+    }
+  }
   if (b.neowise) for (let i = 0; i < (b.meta.neowise?.frames.length ?? 0); i++) planes.push(fillSaturated(neowisePlane(b, i), b.width, b.height));
   // a map-only field (built in the browser without exposures) has no frames: keep the texture non-empty
   if (!planes.length) planes.push(new Float32Array(b.width * b.height).fill(NaN));
