@@ -801,7 +801,7 @@ export default function App() {
     <div className="flex h-full flex-col">
       {tourIdx !== null && <Tour steps={tourSteps} index={tourIdx} taskDone={taskDone} onIndex={goTour} onClose={() => goTour(null)} />}
       {/* header */}
-      <header className="flex items-center gap-3 px-4 pb-2 pt-3">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 pb-1.5 pt-2.5">
         <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
           <circle cx="14" cy="14" r="12" fill="none" stroke="#38bdf8" strokeOpacity="0.5" />
           <circle cx="14" cy="14" r="5" fill="#38bdf8" />
@@ -811,7 +811,7 @@ export default function App() {
           <h1 className="text-base font-semibold leading-tight text-white">SPHEREx Blink</h1>
           <p className="truncate text-xs text-slate-400">Watch the infrared sky change, using real data from NASA's SPHEREx telescope</p>
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center gap-2">
           {irsaUpstream502 && (
             <span
               role="status"
@@ -982,6 +982,38 @@ export default function App() {
               <div className="absolute inset-0 flex items-center justify-center bg-slate-950/60 text-sm text-slate-300 backdrop-blur-sm">Loading…</div>
             )}
 
+            <div className="absolute bottom-3 left-3 flex items-center gap-0.5 rounded-lg border border-white/10 bg-slate-950/80 p-0.5 backdrop-blur">
+              {(
+                [
+                  ["colour", "Colour"],
+                  ["blink", "Blink"],
+                  ["diff", "Diff"],
+                ] as const
+              ).map(([v, l]) => {
+                const disabled = (v === "colour" && !cube) || (v !== "colour" && !bundle.meta.epochs.length);
+                return (
+                  <button
+                    key={v}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => set({ mode: v })}
+                    aria-pressed={state.mode === v}
+                    title={
+                      disabled
+                        ? v === "colour"
+                          ? "No colour map in this bundle"
+                          : "No time series for this field yet"
+                        : `Switch to ${v === "diff" ? "Difference" : l} view`
+                    }
+                    className={`rounded-md px-2 py-1 text-[11px] font-medium transition disabled:opacity-30 ${
+                      state.mode === v ? "bg-sky-400/25 text-white" : "text-slate-300 hover:bg-white/10 hover:text-white"
+                    }`}
+                  >
+                    {l}
+                  </button>
+                );
+              })}
+            </div>
             <div className="pointer-events-none absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2">
               {hover ? (
                 <span className="mono whitespace-nowrap rounded bg-slate-950/80 px-2 py-1 text-[11px] text-slate-300">
@@ -1005,12 +1037,26 @@ export default function App() {
                 <Download size={13} />
                 <span className="ml-1">FITS</span>
               </OverlayBtn>
-              {state.mode === "blink" && steps.length > 0 && (
-                <OverlayBtn active={gifBusy} onClick={exportBlinkGif} title="Export animated Blink GIF for slides & papers">
-                  <Film size={13} />
-                  <span className="ml-1">{gifBusy ? "GIF…" : "GIF"}</span>
-                </OverlayBtn>
-              )}
+              <OverlayBtn
+                active={gifBusy}
+                onClick={() => {
+                  if (state.mode !== "blink") {
+                    if (bundle.meta.epochs.length > 0) set({ mode: "blink" });
+                    return;
+                  }
+                  void exportBlinkGif();
+                }}
+                title={
+                  state.mode === "blink"
+                    ? "Export animated Blink GIF for slides & papers"
+                    : bundle.meta.epochs.length > 0
+                      ? "Switch to Blink mode to export an animated GIF"
+                      : "Load a time series in Blink mode to export a GIF"
+                }
+              >
+                <Film size={13} />
+                <span className={`ml-1 ${state.mode === "blink" ? "" : "opacity-65"}`}>{gifBusy ? "GIF…" : "GIF"}</span>
+              </OverlayBtn>
               <OverlayBtn active={false} onClick={sampFits} title="Send this FITS image to Aladin, TOPCAT, or DS9 via Web SAMP (requires local server)">
                 <Send size={12} />
                 <span className="ml-1">SAMP</span>

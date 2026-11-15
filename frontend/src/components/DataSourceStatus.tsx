@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import { resolveRemoteDataRoot } from "../lib/bundle";
 
 export interface SourceHealth {
@@ -25,6 +25,7 @@ const BROWSER_CHECKS: { id: string; label: string; url: () => string }[] = [
 export function DataSourceStatus({ serverOnline, onUpstream502 }: Props) {
   const [items, setItems] = useState<SourceHealth[]>([]);
   const [busy, setBusy] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   const runChecks = useCallback(async () => {
     setBusy(true);
@@ -86,34 +87,69 @@ export function DataSourceStatus({ serverOnline, onUpstream502 }: Props) {
     void runChecks();
   }, [runChecks]);
 
+  const upCount = items.filter((i) => i.state === "up").length;
+  const downCount = items.filter((i) => i.state === "down").length;
+  const corsCount = items.filter((i) => i.state === "cors").length;
+
   return (
-    <div className="mx-4 mb-2 flex flex-wrap items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-1.5 text-[11px] text-slate-400">
-      <span className="mr-1 font-medium text-slate-300">Data sources:</span>
-      {items.map((it) => (
-        <span
-          key={it.id}
-          title={it.detail}
-          className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 ${
-            it.state === "up"
-              ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-200"
-              : it.state === "down"
-                ? "border-amber-400/35 bg-amber-500/10 text-amber-200"
-                : "border-white/10 bg-white/[0.03] text-slate-300"
-          }`}
-        >
+    <div className="mx-4 mb-1.5 flex flex-wrap items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-1 text-[11px] text-slate-400">
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        aria-expanded={expanded}
+        className="inline-flex items-center gap-1.5 font-medium text-slate-300 hover:text-white"
+        title={expanded ? "Collapse data source details" : "Expand individual NASA/ESA/CDS archive checks"}
+      >
+        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        <span>Data sources:</span>
+        {!expanded && (
+          <span className="inline-flex items-center gap-1.5 font-normal">
+            {items.length === 0 ? (
+              <span className="text-slate-400">Checking…</span>
+            ) : (
+              <>
+                <span className="inline-flex items-center gap-1 text-emerald-300">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                  {upCount} up
+                </span>
+                {downCount > 0 && (
+                  <span className="inline-flex items-center gap-1 text-amber-300">
+                    · <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                    {downCount} down
+                  </span>
+                )}
+                {corsCount > 0 && <span className="text-slate-400">· {corsCount} CORS</span>}
+              </>
+            )}
+          </span>
+        )}
+      </button>
+      {expanded &&
+        items.map((it) => (
           <span
-            className={`h-1.5 w-1.5 rounded-full ${
-              it.state === "up" ? "bg-emerald-400" : it.state === "down" ? "bg-amber-400" : "bg-slate-400"
+            key={it.id}
+            title={it.detail}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 ${
+              it.state === "up"
+                ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-200"
+                : it.state === "down"
+                  ? "border-amber-400/35 bg-amber-500/10 text-amber-200"
+                  : "border-white/10 bg-white/[0.03] text-slate-300"
             }`}
-          />
-          <span>{it.label}</span>
-          {it.detail && it.state !== "checking" && (
-            <span className="mono text-[10px] opacity-80">
-              {it.state === "cors" ? "(CORS)" : it.detail.split(" · ")[0]}
-            </span>
-          )}
-        </span>
-      ))}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                it.state === "up" ? "bg-emerald-400" : it.state === "down" ? "bg-amber-400" : "bg-slate-400"
+              }`}
+            />
+            <span>{it.label}</span>
+            {it.detail && it.state !== "checking" && (
+              <span className="mono text-[10px] opacity-80">
+                {it.state === "cors" ? "(CORS)" : it.detail.split(" · ")[0]}
+              </span>
+            )}
+          </span>
+        ))}
       <button
         type="button"
         onClick={() => void runChecks()}

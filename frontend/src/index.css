@@ -13,3 +13,13 @@ body { font-family: ui-sans-serif, system-ui, "Segoe UI", sans-serif; -webkit-fo
 .mono { font-family: ui-monospace, "Cascadia Mono", "JetBrains Mono", Consolas, monospace; font-variant-numeric: tabular-nums; }
 .panel { background: var(--panel); backdrop-filter: blur(12px); border: 1px solid var(--hairline); }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+
+/* Dark-mode scrollbars so Windows/Chrome don't render bright gray bars over dark panels. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.25) transparent;
+}
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.25); border-radius: 9999px; }
+*::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.45); }

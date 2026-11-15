@@ -9,7 +9,7 @@ interface Props {
 /** Horizontal row of target cards: the first thing a visitor chooses. */
 export function TargetBar({ targets, current, onPick }: Props) {
   return (
-    <nav aria-label="Targets" className="flex gap-2 overflow-x-auto px-4 pb-3 pt-1">
+    <nav aria-label="Targets" className="flex gap-2 overflow-x-auto px-4 pb-2 pt-0.5">
       {targets.map((t, i) => {
         const active = t.id === current;
         return (
@@ -17,7 +17,7 @@ export function TargetBar({ targets, current, onPick }: Props) {
             key={t.id}
             onClick={() => onPick(t.id)}
             aria-pressed={active}
-            className={`group flex min-w-[190px] max-w-[240px] shrink-0 flex-col items-start rounded-lg border px-3 py-2 text-left transition ${
+            className={`group flex min-w-[175px] max-w-[225px] shrink-0 flex-col items-start rounded-lg border px-3 py-1.5 text-left transition ${
               active
                 ? "border-sky-400/70 bg-sky-400/10 shadow-[0_0_24px_-8px_rgba(56,189,248,0.6)]"
                 : "border-white/10 bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.06]"
