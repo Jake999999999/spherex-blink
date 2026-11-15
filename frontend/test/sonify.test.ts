@@ -59,3 +59,12 @@ describe("words", () => {
     expect(describeLightCurve(varying)).toMatch(/^Changes/);
   });
 });
+
+test("pure noise is not described as dips", () => {
+  const pts: Point[] = [];
+  let i = 0;
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5) * 2;
+  for (let wl = 0.8; wl < 5; wl += 0.02) pts.push(pt(wl, rnd(), i++), pt(wl, rnd(), i++));
+  expect(describeSpectrum(pts)).toMatch(/No clear source/);
+});

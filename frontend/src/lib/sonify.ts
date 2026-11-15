@@ -98,7 +98,11 @@ export function binnedSpectrum(pts: Point[], width = 0.06): { wl: number; flux: 
 export function describeSpectrum(pts: Point[]): string {
   const s = binnedSpectrum(pts);
   if (s.length < 6) return "Too few clean measurements to describe this spectrum.";
+  // noise from bin-to-bin jitter (robust); a real source must stand well above it
+  const diffs = s.slice(1).map((p, i) => Math.abs(p.flux - s[i].flux)).sort((a, b) => a - b);
+  const noise = (diffs[diffs.length >> 1] * 1.4826) / Math.SQRT2 || 0;
   const peak = s.reduce((a, b) => (b.flux > a.flux ? b : a));
+  if (peak.flux < 5 * noise) return "No clear source here: these values are mostly sky noise.";
   const dips: { wl: number; depth: number }[] = [];
   for (let i = 1; i < s.length - 1; i++) {
     if (!(s[i].flux < s[i - 1].flux && s[i].flux <= s[i + 1].flux)) continue;
@@ -108,7 +112,7 @@ export function describeSpectrum(pts: Point[]): string {
     const shoulder = Math.min(Math.max(...left), Math.max(...right));
     if (shoulder <= 0) continue;
     const depth = 1 - s[i].flux / shoulder;
-    if (depth >= 0.25) dips.push({ wl: s[i].wl, depth });
+    if (depth >= 0.25 && shoulder - s[i].flux > 3 * noise) dips.push({ wl: s[i].wl, depth });
   }
   dips.sort((a, b) => b.depth - a.depth);
   const named = dips.slice(0, 3).map((d) => {

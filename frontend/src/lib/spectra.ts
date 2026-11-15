@@ -116,6 +116,7 @@ export function toCsv(src: SpectraSource, pts: Point[]): string {
 
 /** Wavelengths of reference molecular bands (positions only; not detections). */
 export const REFERENCE_BANDS: { label: string; wl: number }[] = [
+  { label: "H₂O", wl: 1.15 },
   { label: "H₂O", wl: 1.4 },
   { label: "H₂O", wl: 1.9 },
   { label: "H₂O", wl: 2.7 },
