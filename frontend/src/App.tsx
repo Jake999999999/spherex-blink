@@ -9,6 +9,7 @@ import { PRESETS, blowOutSaturated, colourLevels, fillPinholes, mainToCube, mapS
 import { ColourIntro } from "./components/ColourIntro";
 import { Tour } from "./components/Tour";
 import { availableSteps, type TourContext, type TourSetup } from "./lib/tour";
+import { MEM_PREFIX, memFetch } from "./lib/browser/fieldbuild";
 import { flagPlane as flagPlaneOf, framePlane, loadBundle, loadIndex, matchedPlane, shortName, type Bundle, type IndexEntry } from "./lib/bundle";
 import { TargetBar } from "./components/TargetBar";
 import { Timeline } from "./components/Timeline";
@@ -115,7 +116,7 @@ export default function App() {
     if (!id) return;
     let live = true;
     setLoadingId(id); // keep showing the old target until the new one is ready
-    loadBundle(id, fetch, entry.base)
+    loadBundle(id, entry.base?.startsWith(MEM_PREFIX) ? memFetch : fetch, entry.base)
       .then((b) => {
         if (!live) return;
         setBundle(b);
@@ -143,8 +144,8 @@ export default function App() {
           if (tourAct) {
             const E = b.meta.epochs.length;
             const next = { ...s, target: id, mode: b.meta.default_mode, band: b.meta.default_band, t1: 0, t2: E - 1, ...(tourAct.patch ?? {}) };
-            next.t1 = Math.min(next.t1, E - 1);
-            next.t2 = Math.min(next.t2, E - 1);
+            next.t1 = Math.max(0, Math.min(next.t1, E - 1));
+            next.t2 = Math.max(0, Math.min(next.t2, E - 1));
             return next;
           }
           const E = b.meta.epochs.length;
@@ -154,8 +155,9 @@ export default function App() {
           if (fromUrl && initialUrl.mode === undefined) next.mode = b.meta.default_mode;
           if (fromUrl && initialUrl.band === undefined) next.band = b.meta.default_band;
           if (fromUrl && initialUrl.t2 === undefined) next.t2 = E - 1;
-          next.t1 = Math.min(next.t1, E - 1);
-          next.t2 = Math.min(next.t2, E - 1);
+          next.t1 = Math.max(0, Math.min(next.t1, E - 1));
+          next.t2 = Math.max(0, Math.min(next.t2, E - 1));
+          if (E === 0) next.mode = "colour";
           return next;
         });
       })
@@ -306,7 +308,14 @@ export default function App() {
     (r: LiveResult) => {
       setLiveEntries((cur) => [
         ...cur.filter((e) => e.id !== r.id),
-        { id: r.id, name: r.name || `RA ${r.ra.toFixed(3)}°, Dec ${r.dec.toFixed(3)}°`, tagline: `Your field · ${r.fov}′ · live from NASA`, status: "ready", base: liveBase(r.id), live: { ra: r.ra, dec: r.dec, fov: r.fov } },
+        {
+          id: r.id,
+          name: r.name || `RA ${r.ra.toFixed(3)}°, Dec ${r.dec.toFixed(3)}°`,
+          tagline: r.browser ? `Your field · ${r.fov}′ · built in this browser` : `Your field · ${r.fov}′ · live from NASA`,
+          status: "ready",
+          base: r.browser ? `${MEM_PREFIX}${r.id}` : liveBase(r.id),
+          live: { ra: r.ra, dec: r.dec, fov: r.fov },
+        },
       ]);
       set({ target: r.id });
     },
@@ -334,8 +343,8 @@ export default function App() {
         const E = bundle ? bundle.meta.epochs.length : 1;
         setState((s) => {
           const next = { ...s, ...a.patch };
-          next.t1 = Math.min(next.t1, E - 1);
-          next.t2 = Math.min(next.t2, E - 1);
+          next.t1 = Math.max(0, Math.min(next.t1, E - 1));
+          next.t2 = Math.max(0, Math.min(next.t2, E - 1));
           return next;
         });
       }
@@ -600,11 +609,11 @@ export default function App() {
           break;
         case "d":
         case "D":
-          set({ mode: state.mode === "diff" ? "blink" : "diff" });
+          if (bundle?.meta.epochs.length) set({ mode: state.mode === "diff" ? "blink" : "diff" });
           break;
         case "c":
         case "C":
-          if (bundle?.cube) set({ mode: state.mode === "colour" ? "blink" : "colour" });
+          if (bundle?.cube && bundle.meta.epochs.length) set({ mode: state.mode === "colour" ? "blink" : "colour" });
           break;
         case "g":
         case "G":
@@ -876,9 +885,16 @@ export default function App() {
                 <span className="text-slate-400">minus</span>
                 <VisitSelect value={state.t1} epochs={m.epochs} ok={bandEpochs} onChange={(v) => set({ t1: v })} />
                 {!diffOk && <span className="text-xs text-amber-300">Pick two different visits that both have this wavelength.</span>}
-                {hasMatched && (
+                {hasMatched ? (
                   <span className="text-xs text-slate-400" title="Each visit is compared wavelength by wavelength, so a star's colour can't make it look brighter or fainter.">
                     matched by wavelength
+                  </span>
+                ) : (
+                  <span
+                    className="text-xs text-amber-300"
+                    title="The two visits saw each star at slightly different wavelengths, so every star leaves light and dark leftovers (about 10–15% of its brightness) even if nothing changed. Built-in targets and the local server match the wavelengths first."
+                  >
+                    not matched by wavelength: every star leaves leftovers
                   </span>
                 )}
                 <span className="ml-auto flex items-center gap-2 text-xs text-slate-400">
@@ -958,8 +974,14 @@ export default function App() {
                   key={v}
                   onClick={() => set({ mode: v })}
                   aria-pressed={state.mode === v}
-                  disabled={v === "colour" && !cube}
-                  title={v === "colour" && !cube ? "No colour map in this bundle" : undefined}
+                  disabled={(v === "colour" && !cube) || (v !== "colour" && !bundle.meta.epochs.length)}
+                  title={
+                    v === "colour" && !cube
+                      ? "No colour map in this bundle"
+                      : v !== "colour" && !bundle.meta.epochs.length
+                        ? "No time series for this field yet: add the exposure list to get visits to blink"
+                        : undefined
+                  }
                   className={`rounded-md px-2 py-2 text-left transition disabled:opacity-30 ${state.mode === v ? "bg-sky-400/20 text-white" : "text-slate-400 hover:bg-white/5 hover:text-slate-200"}`}
                 >
                   <span className="block text-sm font-medium">{l}</span>

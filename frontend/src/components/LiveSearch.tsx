@@ -3,6 +3,7 @@ import { Loader2, Search, X } from "lucide-react";
 import { looksLikeCoords, parseCoords } from "../lib/coords";
 import { cancelJob, jobStatus, liveAvailable, resolveName, startField, type JobView } from "../lib/live";
 import { formatDec, formatRa } from "../lib/wcs";
+import { BrowserFetch } from "./BrowserFetch";
 
 export interface LiveResult {
   id: string;
@@ -10,6 +11,8 @@ export interface LiveResult {
   ra: number;
   dec: number;
   fov: number;
+  /** built in this browser (no server) */
+  browser?: boolean;
 }
 
 interface Props {
@@ -99,15 +102,8 @@ export function LiveSearch({ onReady, autostart }: Props) {
     }
   };
 
-  if (available === false) {
-    return (
-      <div className="mx-4 mb-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-slate-400">
-        <b className="text-slate-200">Any spot in the sky:</b> this needs the small local server that fetches from NASA's archives. Run{" "}
-        <code className="mono text-sky-200">uv run python -m spherex_blink serve</code> in <code className="mono">backend/</code> and reload. The five built-in targets
-        work without it.
-      </div>
-    );
-  }
+  // no local server (e.g. the public site): build fields in this browser from NASA's S3 copy instead
+  if (available === false) return <BrowserFetch onReady={onReady} autostart={autostart} />;
 
   const last = job?.log.at(-1);
   return (

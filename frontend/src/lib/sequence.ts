@@ -77,6 +77,8 @@ export function allPlanes(b: Bundle): Float32Array[] {
   // S2 matched frames after the WISE ones (no saturated-core fill: these are differences)
   if (b.meta.layout.matched) for (let e = 0; e < b.meta.epochs.length; e++) for (let d = 1; d <= 6; d++) planes.push(matchedPlane(b, e, d)!);
   if (b.neowise) for (let i = 0; i < (b.meta.neowise?.frames.length ?? 0); i++) planes.push(neowisePlane(b, i));
+  // a map-only field (built in the browser without exposures) has no frames: keep the texture non-empty
+  if (!planes.length) planes.push(new Float32Array(b.width * b.height).fill(NaN));
   return planes;
 }
 
