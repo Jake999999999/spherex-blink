@@ -31,6 +31,9 @@ export function Accuracy({ target }: { target: string }) {
   const pct = (x: number) => `${(x * 100).toFixed(0)}%`;
   return (
     <div className="mt-3 space-y-2 text-xs leading-relaxed text-slate-300">
+      <div className="rounded-md border border-emerald-400/25 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] font-medium text-emerald-200">
+        Zero simulated data · Checked against 2MASS, AllWISE &amp; Gaia DR3
+      </div>
       <p>
         <b className="text-white">Brightness.</b> For {v.photometry.stars} ordinary stars, our numbers match the 2MASS and WISE catalogues to within{" "}
         {pct(Math.max(Math.abs(1 - lo), Math.abs(hi - 1)))} on average ({bands.map(([k, b]) => `${k} ${b.median_ratio.toFixed(2)}`).join(", ")}), star-to-star spread{" "}

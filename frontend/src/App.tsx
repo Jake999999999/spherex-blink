@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RotateCcw, Compass, Route, BookOpen, Settings, TriangleAlert, Activity, ChevronRight, Download, Send, Share2, Film } from "lucide-react";
+import { RotateCcw, Compass, Route, BookOpen, Settings, TriangleAlert, Activity, ChevronRight, Download, Send, Share2, Film, Camera, Copy, Check as CheckIcon } from "lucide-react";
 import { buildFits, card, download, longCards, wcsCards } from "./lib/fitsio";
 import { encodeAnimatedGif, type GifFrame } from "./lib/gif";
 import { liveAvailable } from "./lib/live";
@@ -613,6 +613,7 @@ export default function App() {
   const [sampNote, setSampNote] = useState<string | null>(null);
   const [gifBusy, setGifBusy] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [coordsCopied, setCoordsCopied] = useState(false);
   const sampTimer = useRef<number | null>(null);
   const flashSamp = useCallback((msg: string) => {
     setSampNote(msg);
@@ -659,6 +660,36 @@ export default function App() {
       setGifBusy(false);
     }
   }, [bundle, steps, gifBusy, stepIdx, fps]);
+
+  const exportPng = useCallback(() => {
+    if (!bundle) return;
+    const modeLabel = isColour
+      ? PRESETS.find((p) => p.id === presetId)?.name ?? "Colour"
+      : isDiff
+        ? `${formatMjdMonth(bundle.meta.epochs[state.t2].mjd)} - ${formatMjdMonth(bundle.meta.epochs[state.t1].mjd)}`
+        : step
+          ? step.label
+          : "Sky";
+    const snap = canvasRef.current?.snapshot(`${shortName(bundle.meta.name)} · ${modeLabel} · ${formatRa(bundle.meta.wcs.crval[0])} ${formatDec(bundle.meta.wcs.crval[1])}`);
+    if (!snap) return;
+    const c = document.createElement("canvas");
+    c.width = snap.width;
+    c.height = snap.height;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    const imgData = ctx.createImageData(snap.width, snap.height);
+    imgData.data.set(snap.rgba);
+    ctx.putImageData(imgData, 0, 0);
+    c.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${bundle.meta.id}-${state.mode}.png`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }, "image/png");
+  }, [bundle, isColour, isDiff, presetId, state.t1, state.t2, state.mode, step]);
 
   const copyShareLink = useCallback(async () => {
     try {
@@ -1037,6 +1068,10 @@ export default function App() {
                 <Download size={13} />
                 <span className="ml-1">FITS</span>
               </OverlayBtn>
+              <OverlayBtn active={false} onClick={exportPng} title="Save a labeled PNG snapshot of this view for slides & sharing">
+                <Camera size={13} />
+                <span className="ml-1">PNG</span>
+              </OverlayBtn>
               <OverlayBtn
                 active={gifBusy}
                 onClick={() => {
@@ -1172,6 +1207,27 @@ export default function App() {
           <section>
             <h2 className="text-lg font-semibold text-white">{shortName(m.name)}</h2>
             {m.tagline && <p className="text-sm text-sky-300">{m.tagline}</p>}
+            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
+              <span className="mono" title="Field centre (ICRS J2000)">
+                {formatRa(m.wcs.crval[0])} {formatDec(m.wcs.crval[1])}
+              </span>
+              <span className="mono text-slate-500">
+                ({m.wcs.crval[0].toFixed(4)}, {m.wcs.crval[1].toFixed(4)})
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(`${m.wcs.crval[0].toFixed(5)} ${m.wcs.crval[1].toFixed(5)}`);
+                  setCoordsCopied(true);
+                  window.setTimeout(() => setCoordsCopied(false), 2000);
+                }}
+                title="Copy decimal RA Dec coordinates"
+                className="inline-flex items-center gap-1 rounded border border-white/10 px-1.5 py-0.5 text-[10px] text-slate-300 hover:bg-white/5"
+              >
+                {coordsCopied ? <CheckIcon size={10} className="text-emerald-300" /> : <Copy size={10} />}
+                {coordsCopied ? "Copied" : "Copy"}
+              </button>
+            </div>
             <p className="mt-2 text-[13px] leading-relaxed text-slate-300">{m.blurb}</p>
             {m.notes.map((n) => (
               <p key={n} className="mt-2 flex gap-2 rounded-md bg-amber-400/10 px-2.5 py-1.5 text-xs leading-snug text-amber-200">
