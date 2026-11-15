@@ -3,6 +3,7 @@ name = "spherex-blink"
 version = "0.1.0"
 description = "Pipeline that bakes real SPHEREx (IRSA) data into static bundles for the SPHEREx Blink app"
 requires-python = ">=3.12,<3.13"
+license = "MIT"
 dependencies = [
     "numpy",
     "scipy",

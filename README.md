@@ -85,3 +85,7 @@ docs/                 explanations
 - Proper motion of WISE 0855−0714: Luhman & Esplin (2016).
 
 This project was built with heavy AI assistance (Anthropic's Claude); see the build log.
+
+## Licence
+
+The code is released under the [MIT licence](LICENSE). The data in `frontend/public/benchmarks/` is derived from public NASA and ESA archives; please keep the credits above when you reuse it.
