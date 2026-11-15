@@ -4,7 +4,7 @@ import { buildEcsv, download as saveFile } from "../lib/fitsio";
 import { mjdToYear as yearOf } from "../lib/astro";
 import { describeLightCurve, describeSpectrum, detrendByWavelength, playPlan, sonifyPlan, stopSound } from "../lib/sonify";
 import type { Epoch } from "../lib/bundle";
-import { FLAG_OK, REFERENCE_BANDS, points, preferRing, toCsv, type Measure, type Point, type Spectra, type SpectraSource } from "../lib/spectra";
+import { defaultMeasure, FLAG_OK, MEASURE_NOTES, REFERENCE_BANDS, points, preferRing, toCsv, type Measure, type Point, type Spectra, type SpectraSource } from "../lib/spectra";
 import type { MapSpectrum, Mix } from "../lib/colour";
 import { formatMjdRange, mjdToDate, mjdToYear } from "../lib/astro";
 import { formatNumber, logTicks, niceTicks, robustRange } from "../lib/ticks";
@@ -49,16 +49,18 @@ interface Props {
 }
 
 export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, band, tab, onTab, onClose, children, silent = false, colourWindows = null, colourNote = null }: Props) {
-  const pts = useMemo(() => (spectra && source ? points(spectra, source) : []), [spectra, source]);
+  const firstMeasure = (): Measure => (spectra && source && preferRing(spectra, source) ? "ring" : source ? defaultMeasure(source) : "core");
+  const [lcMeasure, setLcMeasure] = useState<Measure>(firstMeasure);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => setLcMeasure(firstMeasure()), [spectra, source]);
+  // the spectrum never uses the ring (its share of the light changes with wavelength)
+  const specMeasure: Measure = lcMeasure === "ring" ? (source ? defaultMeasure(source) : "core") : lcMeasure;
+  const pts = useMemo(() => (spectra && source ? points(spectra, source, specMeasure) : []), [spectra, source, specMeasure]);
   const nGood = pts.filter((p) => p.flag === FLAG_OK).length;
   const [lcBand, setLcBand] = useState(band);
   useEffect(() => setLcBand(band), [band]);
   const [logY, setLogY] = useState(false);
   const hasRing = !!source?.wing_flux;
-  const ringFirst = () => !!(spectra && source && preferRing(spectra, source));
-  const [lcMeasure, setLcMeasure] = useState<Measure>(() => (ringFirst() ? "ring" : "core"));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => setLcMeasure(ringFirst() ? "ring" : "core"), [spectra, source]);
   const lcPts = useMemo(() => (spectra && source ? points(spectra, source, lcMeasure) : []), [spectra, source, lcMeasure]);
   const tabs = source ? (["spectrum", "lightcurve", "table"] as const) : (["spectrum"] as const);
   const shownTab: PanelTab = source ? tab : "spectrum";
@@ -100,7 +102,7 @@ export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, 
 
   const download = () => {
     const csv = source
-      ? toCsv(source, pts)
+      ? toCsv(source, pts, specMeasure)
       : `# ${title}; SPHEREx all-sky map spectrum, 15.4" aperture, local sky removed\nwavelength_um,flux_mJy\n${(map?.spectrum?.wl ?? [])
           .map((w, i) => `${w},${map?.spectrum?.flux[i] ?? ""}`)
           .join("\n")}\n`;
@@ -126,7 +128,7 @@ export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, 
             { name: "detector", datatype: "int32", values: pts.map((p) => p.det) },
             { name: "wavelength", datatype: "float64", unit: "um", description: "filter centre at the source's pixel", values: pts.map((p) => p.wl) },
             { name: "bandwidth", datatype: "float64", unit: "um", values: pts.map((p) => p.bw) },
-            { name: "flux", datatype: "float64", unit: "mJy", description: "15.4 arcsec aperture, local sky subtracted, no aperture correction", values: pts.map((p) => p.flux) },
+            { name: "flux", datatype: "float64", unit: "mJy", description: MEASURE_NOTES[specMeasure], values: pts.map((p) => p.flux) },
             { name: "flux_err", datatype: "float64", unit: "mJy", values: pts.map((p) => p.err) },
             { name: "flag", datatype: "int32", description: "0 ok, 1 masked pixel in aperture, 2 saturated pixel in aperture", values: pts.map((p) => p.flag) },
           ],
@@ -238,16 +240,18 @@ export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, 
             <input type="checkbox" checked={logY} onChange={(e) => setLogY(e.target.checked)} /> log flux
           </label>
         )}
-        {shownTab === "lightcurve" && hasRing && (
+        {source && (hasRing || source.psf_flux) && (
           <span className="flex items-center gap-1" title={spectra?.wing_note}>
             Measure
-            {(["core", "ring"] as const).map((k) => (
+            {([...(source.psf_flux ? ["psf"] : []), "core", ...(shownTab === "lightcurve" && hasRing ? ["ring"] : [])] as Measure[]).map((k) => (
               <button
                 key={k}
                 onClick={() => setLcMeasure(k)}
-                className={`rounded border px-1.5 ${lcMeasure === k ? "border-sky-400 text-sky-200" : "border-sky-400/20 text-slate-400"}`}
+                aria-pressed={(shownTab === "lightcurve" ? lcMeasure : specMeasure) === k}
+                title={MEASURE_NOTES[k]}
+                className={`rounded border px-1.5 ${(shownTab === "lightcurve" ? lcMeasure : specMeasure) === k ? "border-sky-400 text-sky-200" : "border-sky-400/20 text-slate-400"}`}
               >
-                {k === "core" ? "Core" : "Ring (saturated stars)"}
+                {k === "psf" ? "PSF fit" : k === "core" ? "Aperture" : "Ring (saturated stars)"}
               </button>
             ))}
           </span>
@@ -269,7 +273,7 @@ export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, 
         <span>
           {shownTab === "lightcurve" && lcMeasure === "ring" && spectra?.wing_arcsec
             ? `Ring ${spectra.wing_arcsec[0].toFixed(0)}–${spectra.wing_arcsec[1].toFixed(0)}″ around the saturated core: tracks brightness over time; the ring holds a different share of the light at each wavelength, so compare dates within one detector only.`
-            : `${spectra?.aperture_arcsec ?? 15.4}″ aperture, local sky subtracted. For unsaturated stars these match 2MASS and WISE to about 3%${spectra?.error_model ? "; error bars include a correction measured on steady stars" : ""}.`}
+            : `${MEASURE_NOTES[specMeasure]}${spectra?.error_model ? " Error bars include a correction measured on steady stars." : ""}`}
         </span>
       </footer>
     </section>

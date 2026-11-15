@@ -219,6 +219,19 @@ def motion_check(meta: dict, data: np.ndarray, band: int = 6) -> dict | None:
     return {"measured": total, "gaia": pm, "reference": t["source"], "diff_pct": (total - pm) / pm * 100, "frames": len(pts), "baseline_yr": float(a[:, 0].max() - a[:, 0].min())}
 
 
+def as_psf(spectra: dict) -> dict | None:
+    """The same spectra with the PSF-fit fluxes (S6) in place of the aperture sums, if the bundle has them."""
+    if not any(s.get("psf_flux") for s in spectra["sources"]):
+        return None
+    out = {**spectra, "sources": []}
+    for s in spectra["sources"]:
+        if s.get("psf_flux"):
+            out["sources"].append({**s, "flux": s["psf_flux"], "err": s["psf_err"], "flag": s["psf_flag"]})
+        else:
+            out["sources"].append({**s, "flux": [None] * len(s["flux"])})
+    return out
+
+
 def repeatability_check(spectra: dict) -> list[float]:
     """Visit-to-visit scatter (fraction) of each constant field star, per detector."""
     ex = spectra["exposures"]
@@ -437,6 +450,7 @@ def run(client: httpx.Client | None = None) -> dict:
     client = client or irsa.make_client()
     try:
         phot, ast, mot, rep, mp, mtc, noise, pnoise = [], {}, {}, {}, [], {}, {}, {}
+        phot_psf, rep_psf, pnoise_psf = [], {}, {}
         for tid in TARGET_ORDER:
             loaded = _load(tid)
             if not loaded:
@@ -452,6 +466,11 @@ def run(client: httpx.Client | None = None) -> dict:
             mp += map_check(meta, spectra, tid)
             noise[tid] = noise_check(meta, data, g["stars"])
             pnoise[tid] = photometry_noise_check(spectra)
+            sp_psf = as_psf(spectra)
+            if sp_psf:
+                phot_psf += photometry_check(client, tid, meta, sp_psf, g["stars"])
+                rep_psf[tid] = repeatability_check(sp_psf)
+                pnoise_psf[tid] = photometry_noise_check(sp_psf)
             mc = matched_check(meta, data, g["stars"])
             if mc:
                 mtc[tid] = mc
@@ -461,6 +480,13 @@ def run(client: httpx.Client | None = None) -> dict:
             if len(r) >= 3:
                 med, sc = _robust(r)
                 by_band[b] = {"n": len(r), "median_ratio": med, "scatter": sc / med}
+        by_band_psf = {}
+        for b in BANDS:
+            r = [x["ratio"] for x in phot_psf if x["band"] == b]
+            if len(r) >= 3:
+                med, sc = _robust(r)
+                by_band_psf[b] = {"n": len(r), "median_ratio": med, "scatter": sc / med}
+        all_rep_psf = [o for v in rep_psf.values() for o in v]
         all_ast = [o for v in ast.values() for o in v]
         all_rep = [o for v in rep.values() for o in v]
         result = {
@@ -471,6 +497,12 @@ def run(client: httpx.Client | None = None) -> dict:
                 "median_arcsec": float(np.median(all_ast)) if all_ast else None,
                 "p90_arcsec": float(np.percentile(all_ast, 90)) if all_ast else None,
                 "per_target": {k: (float(np.median(v)) if v else None) for k, v in ast.items()},
+            },
+            "photometry_psf": {
+                "bands": by_band_psf,
+                "stars": len({(x["target"], x["star"]) for x in phot_psf}),
+                "repeatability_median": float(np.median(all_rep_psf)) if all_rep_psf else None,
+                "error_scale": {d: float(np.median([pn[d] for pn in pnoise_psf.values() if d in pn])) for d in range(1, 7) if any(d in pn for pn in pnoise_psf.values())},
             },
             "motion": mot,
             "repeatability": {
@@ -528,6 +560,7 @@ def write_error_model(r: dict) -> None:
         s = json.loads(sp.read_text())
         s["error_model"] = {
             "scale": {str(d): round(max(1.0, v), 3) for d, v in scale.items()},
+            "psf_scale": {str(d): round(max(1.0, v), 3) for d, v in r.get("photometry_psf", {}).get("error_scale", {}).items()},
             "absolute_floor": r["noise"]["absolute_floor"],
             "note": "Single-exposure errors are multiplied by the per-detector scale measured on constant field stars "
             "(never below 1). The absolute floor is the star-to-star spread against 2MASS/WISE.",
@@ -561,6 +594,26 @@ def write_markdown(r: dict) -> None:
         "",
         "**Reading it:** a ratio of 1 means our numbers match the catalogue. We apply no aperture correction, so the ratio also shows how much of a star's light our 15.4″ aperture (with local-sky subtraction) captures; a ratio near 1 means nearly all of it. "
         "The spread is how consistent the measurements are from star to star; it includes catalogue errors, the top-hat approximation to the filter curves and stellar colour terms.",
+        "",
+        "### 1b. PSF fitting (S6)",
+        "",
+        "The same stars and exposures, measured by fitting SPHEREx's official effective PSF (the EPSF table of the level-2 files, "
+        "nearest detector region) at each star's Gaia position, with Gaia neighbours fitted at the same time. This is what the app shows by default.",
+        "",
+        "| Band | Stars | Median ours / catalogue | Spread (robust σ) | Aperture spread |",
+        "|---|---|---|---|---|",
+        *[
+            f"| {b} | {v['n']} | {v['median_ratio']:.2f} | {v['scatter'] * 100:.0f}% | {p['bands'][b]['scatter'] * 100:.0f}% |"
+            for b, v in r.get("photometry_psf", {}).get("bands", {}).items()
+            if b in p["bands"]
+        ],
+        "",
+        f"Visit-to-visit repeatability of constant stars (G 10–14.5): {r['photometry_psf']['repeatability_median'] * 100:.1f}% with the PSF fit, "
+        f"{rep['median'] * 100:.1f}% with the aperture. PSF errors are scaled per detector like the aperture errors (section 8): "
+        + ", ".join(f"D{d} ×{max(1.0, v):.2f}" for d, v in r["photometry_psf"]["error_scale"].items())
+        + "."
+        if r.get("photometry_psf", {}).get("repeatability_median") is not None
+        else "No PSF measurements in these bundles.",
         "",
         "## 2. Positions vs Gaia",
         "",

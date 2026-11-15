@@ -209,3 +209,18 @@ test("NEOWISE yearly frames join the blink after 2010, in the detector's band, w
   expect(blinkSteps(b, 2, true).filter((s) => s.source?.kind === "neowise")).toHaveLength(1); // W1 only
   expect(blinkSteps(b, 6, true, false).map((s) => s.label)[1]).toBe("Visit 1"); // switched off
 });
+
+import { defaultMeasure, points as spPoints } from "../src/lib/spectra";
+test("PSF fit is the default measure unless it skipped most points (saturated stars)", () => {
+  const base = { id: "s", name: "s", gaia_id: null, g: 12, ra: 0, dec: 0, pmra: 0, pmdec: 0, ref_year: 2016, err: [0.1, 0.1, 0.1, 0.1], flag: [0, 0, 0, 0], wl: [1, 1.1, 1.2, 1.3], bw: [null, null, null, null] };
+  const ok = { ...base, flux: [1, 2, 3, 4], psf_flux: [1.1, 2.1, null, 4.1], psf_err: [0.1, 0.1, null, 0.1], psf_flag: [0, 0, 2, 0] };
+  const sat = { ...base, flux: [1, 2, 3, 4], psf_flux: [null, null, null, 4.1], psf_err: [null, null, null, 0.1], psf_flag: [2, 2, 2, 0] };
+  expect(defaultMeasure(ok)).toBe("psf");
+  expect(defaultMeasure(sat)).toBe("core");
+  expect(defaultMeasure({ ...base, flux: [1, 2, 3, 4] })).toBe("core");
+  const s = { units: "mJy" as const, aperture_arcsec: 15.4, sky_annulus_arcsec: [24.6, 43] as [number, number], note: "", flags: {}, exposures: { mjd: [1, 2, 3, 4], det: [1, 1, 3, 3], epoch: [0, 0, 1, 1] }, sources: [ok], error_model: { scale: { "1": 2, "3": 2 }, psf_scale: { "1": 1.5, "3": 4 }, absolute_floor: null, note: "" } };
+  const p = spPoints(s, ok);
+  expect(p.map((x) => x.flux)).toEqual([1.1, 2.1, 4.1]);
+  expect(p.map((x) => x.err)).toEqual([0.15000000000000002, 0.15000000000000002, 0.4]); // PSF errors use the PSF scale
+  expect(spPoints(s, ok, "core").map((x) => x.err)).toEqual([0.2, 0.2, 0.2, 0.2]);
+});

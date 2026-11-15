@@ -520,6 +520,13 @@ def bake_target(t: Target, client: httpx.Client | None = None, out_root: Path = 
         print(f"  wrote {out} ({size / 1e6:.2f} MB, {E} visits, {len(wise_frames)} WISE frames, {len(field)} Gaia stars)", flush=True)
         if size > MAX_BUNDLE_BYTES:
             print(f"  ! bundle is over the {MAX_BUNDLE_BYTES / 1e6:.0f} MB limit", flush=True)
+        # S6: PSF fluxes next to the aperture sums (re-reads the cached cutouts; needs the EPSF tables)
+        try:
+            from . import rephot
+
+            rephot.run([out.name], client, root=out.parent)
+        except Exception as err:  # noqa: BLE001 - aperture photometry is still there
+            print(f"  ! PSF photometry skipped: {type(err).__name__}: {err}", flush=True)
         if out_root == OUT_ROOT:
             write_index(out_root)  # live fields never go into the public site's index
         return meta

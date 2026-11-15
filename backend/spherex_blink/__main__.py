@@ -28,6 +28,8 @@ def main(argv: list[str] | None = None) -> int:
     f.add_argument("--name", default="")
     f.add_argument("--id", required=True, help="bundle id (folder name)")
     f.add_argument("--out", required=True, help="folder to write <id>/ into (never the public site)")
+    rp = sub.add_parser("rephot", help="add PSF-fit fluxes (S6) to baked targets from the cutout cache")
+    rp.add_argument("targets", nargs="*", help="target ids (default: all)")
     sub.add_parser("inject", help="injection-recovery tests on the baked targets (writes injection.json; then run validate)")
     sub.add_parser("validate", help="compare baked numbers with 2MASS/AllWISE/Gaia; write validation.json and docs/VALIDATION.md")
     args = ap.parse_args(argv)
@@ -60,6 +62,13 @@ def main(argv: list[str] | None = None) -> int:
         )
         with irsa_mod.make_client() as client:
             bake_target(t, client, out)
+        return 0
+
+    if args.cmd == "rephot":
+        from .bake import TARGET_ORDER
+        from .rephot import run as rephot_run
+
+        rephot_run(args.targets or TARGET_ORDER)
         return 0
 
     if args.cmd == "inject":
