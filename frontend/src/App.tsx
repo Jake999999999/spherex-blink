@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RotateCcw, Compass, Route, Keyboard, TriangleAlert, Activity, ChevronRight } from "lucide-react";
 import { GAIA_G_LIMIT, SkyCanvas, formatHover, type HoverInfo, type SkyCanvasHandle } from "./components/SkyCanvas";
 import { SpectrumPanel, type PanelTab } from "./components/SpectrumPanel";
-import { Tour, type TourStep } from "./components/Tour";
+import { Tour } from "./components/Tour";
+import { availableSteps, type TourContext, type TourSetup } from "./lib/tour";
 import { framePlane, loadBundle, loadIndex, shortName, wisePlane, type Bundle, type IndexEntry } from "./lib/bundle";
 import { TargetBar } from "./components/TargetBar";
 import { Timeline } from "./components/Timeline";
@@ -52,46 +53,6 @@ const storage = {
   },
 };
 
-interface TourAction {
-  target: string;
-  patch: Partial<ViewState>;
-  select: string | null;
-  tab: PanelTab;
-  playing: boolean;
-}
-
-const TOUR: (TourStep & TourAction)[] = [
-  {
-    title: "A star that moves",
-    body:
-      "Barnard's Star, 6 light-years away, crosses 10.4″ of sky a year. The blink starts with WISE's 2010 image and then shows each SPHEREx visit (2025–2026): the star jumps almost 3′. Between SPHEREx visits it moves only 1–2 pixels; step with ← → to see it. The yellow marks show where Gaia says it should be on each date.",
-    target: "barnard",
-    patch: { mode: "blink", band: 6, wise: true },
-    select: null,
-    tab: "spectrum",
-    playing: true,
-  },
-  {
-    title: "Subtract two visits",
-    body:
-      "Epsilon Indi Ba+Bb are two brown dwarfs, 0.7″ apart, so SPHEREx sees one blended source. Subtracting an earlier visit from a later one cancels the stars that stayed put. This pair moved about 0.8 pixel a year, which leaves a faint amber/cyan pair. Below is its spectrum: each dot is one SPHEREx exposure at one wavelength.",
-    target: "eps-ind-b",
-    patch: { mode: "diff", band: 3, t1: 0, t2: 99 },
-    select: "target",
-    tab: "spectrum",
-    playing: false,
-  },
-  {
-    title: "A star that pulses",
-    body:
-      "This red giant sits next to the north ecliptic pole, which SPHEREx sees every day; Gaia found it pulses over about a year. It's so bright in the infrared that its centre saturates, so the light curve measures a ring of light around the centre instead. Over 18 months it fades to about half and brightens again. Each dot is one exposure; colour is the wavelength inside the detector.",
-    target: "nep-lpv",
-    patch: { mode: "blink", band: 6, wise: false },
-    select: "target",
-    tab: "lightcurve",
-    playing: true,
-  },
-];
 
 export default function App() {
   const [index, setIndex] = useState<IndexEntry[] | null>(null);
@@ -118,7 +79,8 @@ export default function App() {
   const [measure, setMeasure] = useState(false);
   const [pickHint, setPickHint] = useState<string | null>(null);
   const [tourIdx, setTourIdx] = useState<number | null>(() => (storage.get(TOUR_KEY) || initialUrl.target ? null : 0));
-  const pending = useRef<TourAction | null>(null);
+  const pending = useRef<TourSetup | null>(null);
+  const frameWant = useRef<TourSetup["frame"] | null>(null);
 
   // index, then the chosen target
   useEffect(() => {
@@ -145,8 +107,9 @@ export default function App() {
         pending.current = null;
         setSelectedId(tourAct?.select ?? null);
         if (tourAct) {
-          setTab(tourAct.tab);
-          setPlaying(tourAct.playing);
+          if (tourAct.tab) setTab(tourAct.tab);
+          if (tourAct.playing !== undefined) setPlaying(tourAct.playing);
+          if (tourAct.frame) frameWant.current = tourAct.frame;
         }
         // decide outside the updater: StrictMode runs updaters twice
         const fromUrl = !urlApplied.current && !tourAct;
@@ -154,7 +117,7 @@ export default function App() {
         setState((s) => {
           if (tourAct) {
             const E = b.meta.epochs.length;
-            const next = { ...s, target: id, mode: b.meta.default_mode, band: b.meta.default_band, t1: 0, t2: E - 1, ...tourAct.patch };
+            const next = { ...s, target: id, mode: b.meta.default_mode, band: b.meta.default_band, t1: 0, t2: E - 1, ...(tourAct.patch ?? {}) };
             next.t1 = Math.min(next.t1, E - 1);
             next.t2 = Math.min(next.t2, E - 1);
             return next;
@@ -270,7 +233,7 @@ export default function App() {
   const set = useCallback((patch: Partial<ViewState>) => setState((s) => ({ ...s, ...patch })), []);
 
   // ---- guided tour: only steps whose target is baked
-  const tourSteps = useMemo(() => TOUR.filter((t) => index?.some((x) => x.id === t.target)), [index]);
+  const tourSteps = useMemo(() => availableSteps(index?.map((x) => x.id) ?? []), [index]);
   const goTour = useCallback(
     (i: number | null) => {
       if (i === null || !tourSteps[i]) {
@@ -279,26 +242,48 @@ export default function App() {
         return;
       }
       setTourIdx(i);
-      const a = tourSteps[i];
-      if (bundle && bundle.meta.id === a.target) {
-        const E = bundle.meta.epochs.length;
+      const a = tourSteps[i].setup;
+      if (!a) return;
+      if (a.target && (!bundle || bundle.meta.id !== a.target)) {
+        pending.current = a;
+        set({ target: a.target });
+        return;
+      }
+      if (a.patch) {
+        const E = bundle ? bundle.meta.epochs.length : 1;
         setState((s) => {
           const next = { ...s, ...a.patch };
           next.t1 = Math.min(next.t1, E - 1);
           next.t2 = Math.min(next.t2, E - 1);
           return next;
         });
-        setSelectedId(a.select);
-        setTab(a.tab);
-        setPlaying(a.playing);
-        setStepIdx(0);
-      } else {
-        pending.current = a;
-        set({ target: a.target });
       }
+      if (a.select !== undefined) setSelectedId(a.select);
+      if (a.tab) setTab(a.tab);
+      if (a.playing !== undefined) setPlaying(a.playing);
+      if (a.frame) frameWant.current = a.frame;
     },
     [tourSteps, bundle, set],
   );
+  // a tour step can ask for a particular frame once the blink steps exist
+  useEffect(() => {
+    const want = frameWant.current;
+    if (!want || !steps.length) return;
+    const i = steps.findIndex((s) => (want === "wise" ? s.kind === "wise" : s.kind === "spherex"));
+    if (i >= 0) setStepIdx(i);
+    frameWant.current = null;
+  });
+  const tourCtx: TourContext = {
+    target: bundle?.meta.id ?? "",
+    mode: state.mode,
+    band: state.band,
+    frameKind: step?.kind ?? null,
+    playing,
+    selectedId,
+    tab,
+  };
+  const tourStep = tourIdx !== null ? tourSteps[tourIdx] : null;
+  const taskDone = !!tourStep?.done?.(tourCtx);
   // first visit: run step 1 once the index is known
   const tourStarted = useRef(false);
   useEffect(() => {
@@ -434,6 +419,7 @@ export default function App() {
 
   return (
     <div className="flex h-full flex-col">
+      {tourIdx !== null && <Tour steps={tourSteps} index={tourIdx} taskDone={taskDone} onIndex={goTour} onClose={() => goTour(null)} />}
       {/* header */}
       <header className="flex items-center gap-3 px-4 pb-2 pt-3">
         <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
@@ -483,12 +469,14 @@ export default function App() {
         </div>
       )}
 
-      <TargetBar targets={index} current={m.id} onPick={(id) => set({ target: id })} />
+      <div data-tour="targets">
+        <TargetBar targets={index} current={m.id} onPick={(id) => set({ target: id })} />
+      </div>
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         {/* sky + timeline + spectrum */}
         <section className="flex min-h-[70vh] min-w-0 flex-1 flex-col lg:min-h-0">
-          <div className={`relative mx-4 flex-1 overflow-hidden rounded-xl border border-white/10 bg-[#03050a] ${selected ? "min-h-[220px]" : "min-h-[44vh]"}`}>
+          <div data-tour="sky" className={`relative mx-4 flex-1 overflow-hidden rounded-xl border border-white/10 bg-[#03050a] ${selected ? "min-h-[220px]" : "min-h-[44vh]"}`}>
             <SkyCanvas
               bundle={bundle}
               draw={draw}
@@ -535,7 +523,6 @@ export default function App() {
               <p className="mt-1 text-[10px] text-slate-500">{sourceLabel}</p>
             </div>
 
-            {tourIdx !== null && <Tour steps={tourSteps} index={tourIdx} onIndex={goTour} onClose={() => goTour(null)} />}
             {pickHint && (
               <button onClick={() => setPickHint(null)} className="absolute left-1/2 top-24 max-w-md -translate-x-1/2 rounded-lg border border-white/10 bg-slate-950/90 px-3 py-2 text-xs text-slate-300">
                 {pickHint}
@@ -568,7 +555,7 @@ export default function App() {
           </div>
 
           {/* bottom bar: timeline or compare */}
-          <div className="mx-4 mt-2 rounded-xl border border-white/10 bg-white/[0.03]">
+          <div data-tour="timeline" className="mx-4 mt-2 rounded-xl border border-white/10 bg-white/[0.03]">
             {state.mode === "blink" ? (
               <Timeline
                 steps={steps}
@@ -598,7 +585,7 @@ export default function App() {
           </div>
 
           {selected && bundle.spectra && (
-            <div className="mx-4 mb-3 mt-2 h-[44%] min-h-[280px] shrink-0 overflow-hidden rounded-xl border border-white/10">
+            <div data-tour="spectrum" className="mx-4 mb-3 mt-2 h-[44%] min-h-[280px] shrink-0 overflow-hidden rounded-xl border border-white/10">
               <SpectrumPanel
                 spectra={bundle.spectra}
                 source={selected}
@@ -642,7 +629,7 @@ export default function App() {
             )}
           </section>
 
-          <Section title="View">
+          <Section title="View" anchor="view">
             <div className="grid grid-cols-2 gap-1 rounded-lg bg-white/[0.04] p-1">
               {(
                 [
@@ -764,9 +751,9 @@ export default function App() {
   );
 }
 
-function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+function Section({ title, hint, anchor, children }: { title: string; hint?: string; anchor?: string; children: React.ReactNode }) {
   return (
-    <section>
+    <section data-tour={anchor}>
       <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">{title}</h3>
       {children}
       {hint && <p className="mt-1.5 text-[11px] leading-snug text-slate-500">{hint}</p>}

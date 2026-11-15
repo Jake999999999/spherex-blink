@@ -2,7 +2,7 @@
 
 NASA Space Apps 2026 entry. A blink comparator, epoch-difference viewer and spectrum explorer for NASA's SPHEREx near-infrared all-sky survey, using real archive data from IRSA.
 
-Status (2026-11-14): **M0, M1 and M2 done on real data; all five targets baked** (4.4 MB total). 19 pytest + 28 bun tests, typecheck and build clean; guided tour checked end to end in the browser.
+Status (2026-11-14): **M0, M1 and M2 done on real data; all five targets baked** (4.4 MB total). UI overhauled (smooth display with raw-pixel toggle, target cards, timeline, explainer card) and the guided tour rebuilt as nine spotlight steps with small tasks. 19 pytest + 37 bun tests, typecheck and build clean. Docs: `README.md`, `docs/HOW-IT-WORKS.md`, `docs/BUILD-LOG.md`.
 
 Results on real data:
 - Barnard's Star: motion fit (WISE 2010 + 3 visits, D6) 10.42 ± 0.11″/yr at PA 355° vs Gaia 10.39″/yr. Core saturated in nearly every exposure, so its spectrum is flagged.

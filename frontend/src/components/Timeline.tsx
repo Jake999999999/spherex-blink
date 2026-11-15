@@ -30,6 +30,7 @@ export function Timeline({ steps, current, playing, fps, onStep, onPlay, onFps }
   return (
     <div className="flex items-center gap-4 px-4 py-3">
       <button
+        data-tour="play"
         onClick={onPlay}
         aria-label={playing ? "Pause blink (Space)" : "Play blink (Space)"}
         title={playing ? "Pause (Space)" : "Play (Space)"}
