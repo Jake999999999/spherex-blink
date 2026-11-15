@@ -53,14 +53,18 @@ def measure(tid: str, epsfs: dict[int, psf.Epsf], orient: str = "as-is", only: s
         raise RuntimeError(f"{tid}: {len(used)} used exposures in meta.json but {n} in spectra.json")
     srcs = [s for s in spectra["sources"] if only is None or s["id"] in only]
     res = {s["id"]: {"flux": [None] * n, "err": [None] * n, "flag": [0] * n, "chi2": [None] * n} for s in srcs}
+    missing = 0
     for i, (e, path) in enumerate(used):
         if limit is not None and i >= limit:
             break
-        if abs(e["mjd"] - spectra["exposures"]["mjd"][i]) > 1e-3:
+        if abs(e["mjd"] - spectra["exposures"]["mjd"][i]) > 1e-3 or e["detector"] != spectra["exposures"]["det"][i]:
             raise RuntimeError(f"{tid}: exposure order differs at {i}")
         if not path.exists():
+            missing += 1
             continue
         ex = frames.load_exposure(path)
+        if ex.detector != e["detector"]:
+            raise RuntimeError(f"{tid}: cutout {i} is detector {ex.detector}, expected {e['detector']}")
         hdr = fits.getheader(path, "IMAGE")
         ox, oy = psf.active_offset(hdr)
         tab = epsfs[ex.detector]
@@ -91,6 +95,8 @@ def measure(tid: str, epsfs: dict[int, psf.Epsf], orient: str = "as-is", only: s
             r["err"][i] = round(p.err, 4) if ok else None
             r["flag"][i] = p.flag
             r["chi2"][i] = round(chi2, 3) if math.isfinite(chi2) else None
+    if missing:
+        print(f"  ! {tid}: {missing} of {n} cutouts not in the cache; their PSF fluxes are empty", flush=True)
     return res
 
 
@@ -106,7 +112,8 @@ def apply(tid: str, res: dict, orient: str, root: Path = OUT_ROOT) -> None:
     sp["psf"] = {
         "method": "forced fit of SPHEREx's official ePSF (EPSF table of the level-2 files, nearest detector region), "
         f"amplitude only, pixels within {psf.R_FIT * frames.PIXEL_SCALE_ARCSEC:.1f}\" of the source, local sky from the aperture annulus, "
-        "Gaia neighbours within the fit fitted at the same time; flux is the total in the 33x33 ePSF box",
+        "Gaia neighbours within the fit (any brightness, free amplitudes) fitted at the same time, except ones closer than 0.7 px, whose light "
+        "counts with the source; flux is the total in the 33x33 ePSF box",
         "orientation": orient,
         "units": "mJy",
     }

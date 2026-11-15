@@ -40,8 +40,8 @@ export function defaultMeasure(src: SpectraSource): Measure {
 }
 
 export const MEASURE_NOTES: Record<Measure, string> = {
-  psf: "Fit of SPHEREx's official PSF at the star's Gaia position (neighbours fitted too), local sky subtracted. Against 2MASS and WISE: median within 3%, star-to-star scatter 1–4%.",
-  core: "15.4″ aperture, local sky subtracted, no aperture correction. Against 2MASS and WISE: median within 3%, star-to-star scatter 3–7%.",
+  psf: "Fit of SPHEREx's official PSF at the star's Gaia position (neighbours fitted too), local sky subtracted. Against 2MASS (27 stars) and WISE (9): median within 3%, star-to-star scatter about 1–4%.",
+  core: "15.4″ aperture, local sky subtracted, no aperture correction. Against 2MASS (28 stars) and WISE (9): median within 3%, star-to-star scatter about 3–7%.",
   ring: "Ring around a saturated core: tracks brightness over time; the ring holds a different share of the light at each wavelength, so compare dates within one detector only.",
 };
 
@@ -54,7 +54,14 @@ export interface Spectra {
   wing_arcsec?: [number, number];
   wing_note?: string;
   /** S3: measured on constant field stars; single-exposure errors are multiplied by scale[detector] */
-  error_model?: { scale: Record<string, number>; psf_scale?: Record<string, number>; absolute_floor: number | null; note: string };
+  error_model?: {
+    scale: Record<string, number>;
+    psf_scale?: Record<string, number>;
+    /** noise scale and flux-proportional floor per method and detector (preferred when present) */
+    model?: Partial<Record<"core" | "psf", Record<string, { scale: number; floor: number }>>>;
+    absolute_floor: number | null;
+    note: string;
+  };
   psf?: { method: string; orientation: string; units: string };
   exposures: { mjd: number[]; det: number[]; epoch: number[] };
   sources: SpectraSource[];
@@ -91,8 +98,11 @@ export function points(s: Spectra, src: SpectraSource, measure?: Measure): Point
     if (ring && flag === FLAG_BAD_PIXEL) flag = FLAG_OK;
     const raw = ring ? (src.wing_err?.[i] ?? 0) : psf ? (src.psf_err?.[i] ?? 0) : (src.err[i] ?? 0);
     // honest error bars (S3): stated errors were too small by a factor measured per detector and method
-    const scale = psf ? s.error_model?.psf_scale?.[String(e.det[i])] : s.error_model?.scale[String(e.det[i])];
-    const err = raw * Math.max(1, scale ?? 1);
+    const det = String(e.det[i]);
+    const model = ring ? undefined : s.error_model?.model?.[psf ? "psf" : "core"]?.[det];
+    let err: number;
+    if (model) err = Math.hypot(raw * Math.max(1, model.scale), model.floor * Math.abs(f));
+    else err = raw * Math.max(1, (psf ? s.error_model?.psf_scale?.[det] : s.error_model?.scale[det]) ?? 1);
     out.push({ i, mjd: e.mjd[i], wl: w, bw: src.bw[i], flux: f, err, flag, det: e.det[i], epoch: e.epoch[i] });
   }
   return out;

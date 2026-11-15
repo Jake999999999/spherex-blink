@@ -445,12 +445,48 @@ def photometry_noise_check(spectra: dict) -> dict:
     return {d: float(np.median(np.abs(np.array(v) - np.median(v))) * 1.4826) for d, v in per.items() if len(v) >= 20}
 
 
+def photometry_error_model(spectra: dict) -> dict:
+    """Per-detector error model err² = (scale·σ)² + (floor·flux)², fitted on constant field stars.
+
+    One multiplier per detector can't describe both regimes: faint points are limited by noise (the
+    stated σ, too small by `scale`), bright points by a per-exposure systematic proportional to flux
+    (`floor`). The points are split at the median relative error: `scale` comes from the noisier half,
+    `floor` from what the quieter half has left over once the scaled noise is removed."""
+    ex = spectra["exposures"]
+    per: dict[int, list[tuple[float, float, float]]] = {}
+    for src in spectra["sources"][1:]:
+        if src.get("g") is None or not (10 <= src["g"] <= 14.5):
+            continue
+        rows = [(wl, f, er, det) for f, er, fl, wl, det in zip(src["flux"], src["err"], src["flag"], src["wl"], ex["det"]) if f is not None and fl == 0 and er and er > 0 and wl]
+        for wl, f, er, det in rows:
+            near = sorted(f2 for wl2, f2, _, _ in rows if abs(wl2 - wl) <= 0.015 * wl)
+            if len(near) >= 4 and near[len(near) // 2] > 0:
+                ref = near[len(near) // 2]
+                per.setdefault(det, []).append((f - ref, er, ref))
+    rstd = lambda a: float(np.median(np.abs(a - np.median(a))) * 1.4826)  # noqa: E731
+    out = {}
+    for d, v in per.items():
+        if len(v) < 40:
+            continue
+        a = np.array(v)
+        rel = a[:, 1] / a[:, 2]
+        noisy = rel >= np.median(rel)
+        scale = max(1.0, rstd(a[noisy, 0] / a[noisy, 1]))
+        quiet = ~noisy
+        excess = rstd(a[quiet, 0] / a[quiet, 2]) ** 2 - float(np.median((scale * rel[quiet]) ** 2))
+        floor = float(np.sqrt(max(0.0, excess)))
+        model = np.sqrt((scale * a[:, 1]) ** 2 + (floor * a[:, 2]) ** 2)
+        out[d] = {"scale": round(scale, 3), "floor": round(floor, 4), "check": round(rstd(a[:, 0] / model), 3), "n": len(v)}
+    return out
+
+
 def run(client: httpx.Client | None = None) -> dict:
     own = client is None
     client = client or irsa.make_client()
     try:
         phot, ast, mot, rep, mp, mtc, noise, pnoise = [], {}, {}, {}, [], {}, {}, {}
         phot_psf, rep_psf, pnoise_psf = [], {}, {}
+        emodel: dict[str, list[dict]] = {}
         for tid in TARGET_ORDER:
             loaded = _load(tid)
             if not loaded:
@@ -466,11 +502,13 @@ def run(client: httpx.Client | None = None) -> dict:
             mp += map_check(meta, spectra, tid)
             noise[tid] = noise_check(meta, data, g["stars"])
             pnoise[tid] = photometry_noise_check(spectra)
+            emodel.setdefault("core", []).append(photometry_error_model(spectra))
             sp_psf = as_psf(spectra)
             if sp_psf:
                 phot_psf += photometry_check(client, tid, meta, sp_psf, g["stars"])
                 rep_psf[tid] = repeatability_check(sp_psf)
                 pnoise_psf[tid] = photometry_noise_check(sp_psf)
+                emodel.setdefault("psf", []).append(photometry_error_model(sp_psf))
             mc = matched_check(meta, data, g["stars"])
             if mc:
                 mtc[tid] = mc
@@ -513,6 +551,15 @@ def run(client: httpx.Client | None = None) -> dict:
             "flags": flag_check(TARGET_ORDER),
             "injection": json.loads((OUT_ROOT / "injection.json").read_text()) if (OUT_ROOT / "injection.json").exists() else None,
             "noise": _combine_noise(noise, pnoise, by_band),
+            # pooled over targets: median of each target's per-detector fit
+            "error_model": {
+                m: {
+                    d: {k: float(np.median([t[d][k] for t in fits if d in t])) for k in ("scale", "floor", "check")}
+                    for d in range(1, 7)
+                    if any(d in t for t in fits)
+                }
+                for m, fits in emodel.items()
+            },
             "matched_difference": mtc,
             "map_vs_exposures": {
                 "rows": mp,
@@ -561,9 +608,11 @@ def write_error_model(r: dict) -> None:
         s["error_model"] = {
             "scale": {str(d): round(max(1.0, v), 3) for d, v in scale.items()},
             "psf_scale": {str(d): round(max(1.0, v), 3) for d, v in r.get("photometry_psf", {}).get("error_scale", {}).items()},
+            # S6 review: noise scale + flux-proportional floor per detector and method (the app prefers this)
+            "model": {m: {str(d): {"scale": round(v["scale"], 3), "floor": round(v["floor"], 4)} for d, v in per.items()} for m, per in r.get("error_model", {}).items()},
             "absolute_floor": r["noise"]["absolute_floor"],
-            "note": "Single-exposure errors are multiplied by the per-detector scale measured on constant field stars "
-            "(never below 1). The absolute floor is the star-to-star spread against 2MASS/WISE.",
+            "note": "Single-exposure errors: err² = (scale·σ)² + (floor·flux)², per detector and method, fitted on constant field stars "
+            "(scale never below 1). The absolute floor is the star-to-star spread against 2MASS/WISE.",
         }
         sp.write_text(json.dumps(s, separators=(",", ":")))
 
@@ -609,8 +658,8 @@ def write_markdown(r: dict) -> None:
         ],
         "",
         f"Visit-to-visit repeatability of constant stars (G 10–14.5): {r['photometry_psf']['repeatability_median'] * 100:.1f}% with the PSF fit, "
-        f"{rep['median'] * 100:.1f}% with the aperture. PSF errors are scaled per detector like the aperture errors (section 8): "
-        + ", ".join(f"D{d} ×{max(1.0, v):.2f}" for d, v in r["photometry_psf"]["error_scale"].items())
+        f"{rep['median'] * 100:.1f}% with the aperture. Error model of the PSF fluxes (section 8): "
+        + ", ".join(f"D{d} noise ×{v['scale']:.2f} + {v['floor'] * 100:.1f}% of the flux" for d, v in r.get("error_model", {}).get("psf", {}).items())
         + "."
         if r.get("photometry_psf", {}).get("repeatability_median") is not None
         else "No PSF measurements in these bundles.",
@@ -696,7 +745,22 @@ def write_markdown(r: dict) -> None:
         lines += [
             "",
             "(Plain stacks fail this test for a good reason: their “blank” sky still holds real faint stars and glow below Gaia's limit, so it isn't pure noise.) "
-            "The app multiplies single-exposure error bars by the photometry factor for each detector (never by less than 1). "
+            "That single factor mixes two things: noise (which matters for faint stars) and a per-exposure systematic proportional to the flux (which dominates for bright ones). "
+            "So the app uses a two-part model per detector, err² = (scale·σ)² + (floor·flux)², fitted on the same stars "
+            "(the noisier half sets the scale, the quieter half the floor; 'check' should be close to 1):",
+            "",
+            "| Detector | Aperture: scale, floor, check | PSF fit: scale, floor, check |",
+            "|---|---|---|",
+            *[
+                "| D{d} | {a} | {p} |".format(
+                    d=d,
+                    a=(lambda v: f"×{v['scale']:.2f}, {v['floor'] * 100:.1f}%, {v['check']:.2f}" if v else "–")(r.get("error_model", {}).get("core", {}).get(d)),
+                    p=(lambda v: f"×{v['scale']:.2f}, {v['floor'] * 100:.1f}%, {v['check']:.2f}" if v else "–")(r.get("error_model", {}).get("psf", {}).get(d)),
+                )
+                for d in range(1, 7)
+            ],
+            "",
+            "The stars used are G 10–14.5, so the noise part is measured on moderately bright stars; for much fainter sources it is an extrapolation. "
             f"Absolute brightness carries a further ≈{(nz.get('absolute_floor') or 0) * 100:.0f}% uncertainty (the star-to-star spread against 2MASS/WISE, section 1).",
             "",
         ]

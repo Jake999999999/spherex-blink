@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -50,7 +51,8 @@ def s3_key_from_url(url: str) -> str | None:
 
 def load_epsf(client: httpx.Client, detector: int, l2_key: str) -> Epsf:
     """EPSF table of one detector, read from the level-2 file `l2_key` on S3 (cached as .npz)."""
-    path = _cache() / f"epsf_D{detector}.npz"
+    ver = re.search(r"l2b(?:_retry)?-(v\d+)", l2_key)
+    path = _cache() / f"epsf_D{detector}_{ver.group(1) if ver else 'unknown'}.npz"
     if not path.exists():
         url = cube.S3_BASE + l2_key
         hdus = cube.walk_hdus(client, url)
@@ -86,7 +88,10 @@ def model(psf: np.ndarray, dx: np.ndarray, dy: np.ndarray, orient: str = "as-is"
 def active_offset(header) -> tuple[float, float]:
     """Cutout pixel (0-based) -> active detector pixel: the LINEAR 'A' axis (astropy would also apply
     SIP to it, which is wrong for this axis, so it's computed directly)."""
-    return 1.0 - float(header.get("CRPIX1A", 1.0)), 1.0 - float(header.get("CRPIX2A", 1.0))
+    return (
+        float(header.get("CRVAL1A", 0.0)) + 1.0 - float(header.get("CRPIX1A", 1.0)),
+        float(header.get("CRVAL2A", 0.0)) + 1.0 - float(header.get("CRPIX2A", 1.0)),
+    )
 
 
 def fit(

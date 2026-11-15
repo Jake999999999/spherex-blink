@@ -224,3 +224,10 @@ test("PSF fit is the default measure unless it skipped most points (saturated st
   expect(p.map((x) => x.err)).toEqual([0.15000000000000002, 0.15000000000000002, 0.4]); // PSF errors use the PSF scale
   expect(spPoints(s, ok, "core").map((x) => x.err)).toEqual([0.2, 0.2, 0.2, 0.2]);
 });
+
+test("two-part error model: err² = (scale·σ)² + (floor·flux)², per method", () => {
+  const src = { id: "s", name: "s", gaia_id: null, g: 12, ra: 0, dec: 0, pmra: 0, pmdec: 0, ref_year: 2016, flux: [100], err: [1], flag: [0], wl: [1], bw: [null], psf_flux: [100], psf_err: [1], psf_flag: [0] };
+  const s = { units: "mJy" as const, aperture_arcsec: 15.4, sky_annulus_arcsec: [24.6, 43] as [number, number], note: "", flags: {}, exposures: { mjd: [1], det: [3], epoch: [0] }, sources: [src], error_model: { scale: { "3": 9 }, model: { core: { "3": { scale: 3, floor: 0.04 } }, psf: { "3": { scale: 2, floor: 0 } } }, absolute_floor: null, note: "" } };
+  expect(spPoints(s, src, "core")[0].err).toBeCloseTo(5, 10); // hypot(3·1, 0.04·100)
+  expect(spPoints(s, src, "psf")[0].err).toBeCloseTo(2, 10);
+});

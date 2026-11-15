@@ -28,7 +28,7 @@ The same stars and exposures, measured by fitting SPHEREx's official effective P
 | W1 | 9 | 0.97 | 1% | 3% |
 | W2 | 9 | 1.02 | 1% | 4% |
 
-Visit-to-visit repeatability of constant stars (G 10–14.5): 2.6% with the PSF fit, 2.6% with the aperture. PSF errors are scaled per detector like the aperture errors (section 8): D1 ×1.41, D2 ×2.70, D3 ×3.98, D4 ×1.36, D5 ×1.00, D6 ×1.25.
+Visit-to-visit repeatability of constant stars (G 10–14.5): 2.6% with the PSF fit, 2.6% with the aperture. Error model of the PSF fluxes (section 8): D1 noise ×1.50 + 0.4% of the flux, D2 noise ×2.36 + 1.8% of the flux, D3 noise ×3.81 + 0.5% of the flux, D4 noise ×1.44 + 0.9% of the flux, D5 noise ×1.03 + 1.2% of the flux, D6 noise ×1.11 + 2.7% of the flux.
 
 ## 2. Positions vs Gaia
 
@@ -107,7 +107,18 @@ If the stated uncertainties are right, a measurement divided by its uncertainty 
 | D5 | 0.92 | 1.31 |
 | D6 | 0.94 | 1.08 |
 
-(Plain stacks fail this test for a good reason: their “blank” sky still holds real faint stars and glow below Gaia's limit, so it isn't pure noise.) The app multiplies single-exposure error bars by the photometry factor for each detector (never by less than 1). Absolute brightness carries a further ≈6% uncertainty (the star-to-star spread against 2MASS/WISE, section 1).
+(Plain stacks fail this test for a good reason: their “blank” sky still holds real faint stars and glow below Gaia's limit, so it isn't pure noise.) That single factor mixes two things: noise (which matters for faint stars) and a per-exposure systematic proportional to the flux (which dominates for bright ones). So the app uses a two-part model per detector, err² = (scale·σ)² + (floor·flux)², fitted on the same stars (the noisier half sets the scale, the quieter half the floor; 'check' should be close to 1):
+
+| Detector | Aperture: scale, floor, check | PSF fit: scale, floor, check |
+|---|---|---|
+| D1 | ×1.32, 0.0%, 0.95 | ×1.50, 0.4%, 0.81 |
+| D2 | ×1.88, 1.1%, 0.89 | ×2.36, 1.8%, 0.85 |
+| D3 | ×1.75, 0.4%, 0.88 | ×3.81, 0.5%, 1.04 |
+| D4 | ×1.25, 0.0%, 0.77 | ×1.44, 0.9%, 0.86 |
+| D5 | ×1.21, 1.4%, 0.93 | ×1.03, 1.2%, 0.84 |
+| D6 | ×1.08, 0.2%, 0.97 | ×1.11, 2.7%, 0.93 |
+
+The stars used are G 10–14.5, so the noise part is measured on moderately bright stars; for much fainter sources it is an extrapolation. Absolute brightness carries a further ≈6% uncertainty (the star-to-star spread against 2MASS/WISE, section 1).
 
 ## 9. Injection–recovery (S4)
 
