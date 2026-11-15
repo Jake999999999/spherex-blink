@@ -21,6 +21,7 @@ import { blinkSteps, epochsWithBand, layerOf, matchedLayer, stepPlane, type Step
 import { diffLimit, levelsFor, subtract } from "./lib/stretch";
 import { DEFAULT_STATE, parseLive, parseState, serializeState, type ViewState } from "./lib/urlState";
 import { LiveSearch, type LiveResult, type SourceMode } from "./components/LiveSearch";
+import { DataSourceStatus } from "./components/DataSourceStatus";
 import { GuideAndSettings, type HelpTab } from "./components/GuideAndSettings";
 import { liveBase, FORCE_BROWSER } from "./lib/live";
 import { COLORMAPS, COLORMAP_LABELS, buildLut, type ColormapName } from "./gl/colormaps";
@@ -888,6 +889,7 @@ export default function App() {
         onCheckServer={checkServer}
         onUpstream502={setIrsaUpstream502}
       />
+      <DataSourceStatus serverOnline={serverOnline} onUpstream502={setIrsaUpstream502} />
       <div data-tour="targets">
         <TargetBar targets={[...index, ...liveEntries]} current={m.id} onPick={(id) => set({ target: id })} />
       </div>

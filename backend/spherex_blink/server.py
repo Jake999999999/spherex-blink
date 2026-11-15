@@ -58,6 +58,36 @@ FILES = {
 SESAME = "https://cds.unistra.fr/cgi-bin/nph-sesame/-oxp/SNV"
 BACKEND = Path(__file__).resolve().parents[1]
 
+PROBE_ENDPOINTS: list[tuple[str, str, str]] = [
+    ("irsa_sia", "IRSA SIA (SPHEREx)", "https://irsa.ipac.caltech.edu/SIA?COLLECTION=spherex_dr1&POS=circle%2043.25%2016.88%200.01"),
+    ("irsa_ibe", "IRSA IBE (Cutouts)", "https://irsa.ipac.caltech.edu/ibe/data/wise/allwise/p3am_cdd/13/1342/1342m076_ac51/1342m076_ac51-w1-int-3.fits?center=133.795,-7.245&size=0.01deg"),
+    ("irsa_tap", "IRSA TAP", "https://irsa.ipac.caltech.edu/TAP/sync?QUERY=SELECT+TOP+1+*+FROM+TAP_SCHEMA.tables&FORMAT=json"),
+    ("aws_s3", "AWS S3 (SPHEREx)", "https://nasa-irsa-spherex.s3.amazonaws.com/?list-type=2&max-keys=1"),
+    ("esa_gaia", "ESA Gaia DR3", "https://gea.esac.esa.int/tap-server/tap/availability"),
+    ("vizier_tap", "VizieR TAP (Mirror)", "https://tapvizier.cds.unistra.fr/TAPVizieR/tap/availability"),
+    ("cds_sesame", "CDS Sesame (Names)", "https://cdsweb.u-strasbg.fr/cgi-bin/nph-sesame/-oI/A?Vega"),
+]
+
+
+def probe_data_sources(timeout: float = 5.0) -> list[dict]:
+    """Concurrently check upstream astronomy data sources and return status + latency."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def check(item: tuple[str, str, str]) -> dict:
+        sid, label, url = item
+        t0 = time.monotonic()
+        try:
+            with httpx.Client(timeout=timeout, follow_redirects=True, headers={"User-Agent": irsa.USER_AGENT}) as c:
+                r = c.get(url)
+            ms = round((time.monotonic() - t0) * 1000)
+            return {"id": sid, "label": label, "ok": 200 <= r.status_code < 400, "status": r.status_code, "ms": ms}
+        except Exception as e:
+            ms = round((time.monotonic() - t0) * 1000)
+            return {"id": sid, "label": label, "ok": False, "status": type(e).__name__, "ms": ms}
+
+    with ThreadPoolExecutor(max_workers=len(PROBE_ENDPOINTS)) as pool:
+        return list(pool.map(check, PROBE_ENDPOINTS))
+
 
 def parse_field(body: dict) -> dict:
     """Validated, normalised field request. Raises ValueError with a readable message."""
@@ -319,6 +349,8 @@ class Handler(BaseHTTPRequestHandler):
         parts = [p for p in url.path.split("/") if p]
         if parts == ["api", "health"]:
             return self._json(200, {"ok": True, "version": __version__})
+        if parts == ["api", "status"]:
+            return self._json(200, {"sources": probe_data_sources()})
         if parts == ["api", "resolve"]:
             name = urllib.parse.parse_qs(url.query).get("name", [""])[0]
             try:
