@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, Globe2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Crosshair, Globe2, X } from "lucide-react";
 import type { GaiaStar, GridWcs } from "../lib/bundle";
 import { formatDec, formatRa, pixelToWorld } from "../lib/wcs";
 
@@ -8,6 +8,7 @@ interface AladinGlobal {
   aladin: (el: HTMLElement, opts: Record<string, unknown>) => AladinInstance;
   graphicOverlay: (opts: Record<string, unknown>) => AladinOverlay;
   polyline: (coords: [number, number][], opts?: Record<string, unknown>) => unknown;
+  circle: (ra: number, dec: number, radiusDeg: number, opts?: Record<string, unknown>) => unknown;
   catalog: (opts: Record<string, unknown>) => AladinCatalog;
   source: (ra: number, dec: number, data?: Record<string, string | number>) => unknown;
 }
@@ -147,6 +148,7 @@ function FinderChartFallback({
   fovDeg,
   footprintCorners,
   streak,
+  selectedStar,
   stars,
   showGaia,
 }: {
@@ -155,6 +157,7 @@ function FinderChartFallback({
   fovDeg: number;
   footprintCorners: [number, number][];
   streak?: [[number, number], [number, number]] | null;
+  selectedStar?: { ra: number; dec: number } | null;
   stars: FinderStar[];
   showGaia: boolean;
 }) {
@@ -228,6 +231,12 @@ function FinderChartFallback({
           />
         )}
 
+        {/* Selected star highlight */}
+        {selectedStar && (() => {
+          const [sx, sy] = project(selectedStar.ra, selectedStar.dec);
+          return <circle cx={sx} cy={sy} r={7} fill="none" stroke="#38bdf8" strokeWidth="1.75" />;
+        })()}
+
         {/* Centre reticle */}
         <g stroke="rgba(56,189,248,0.55)" strokeWidth="1">
           <line x1={W / 2 - 6} y1={H / 2} x2={W / 2 - 2} y2={H / 2} />
@@ -270,9 +279,10 @@ interface Props {
   shape: [number, number];
   gaiaStars: GaiaStar[];
   streak?: [[number, number], [number, number]] | null;
+  selectedStar?: { ra: number; dec: number } | null;
 }
 
-export function SkyContextAladin({ wcs, shape, gaiaStars, streak }: Props) {
+export function SkyContextAladin({ wcs, shape, gaiaStars, streak, selectedStar }: Props) {
   const [open, setOpen] = useState(false);
   const [survey, setSurvey] = useState<(typeof SURVEYS)[number]["id"]>(SURVEYS[0].id);
   const [showGaiaCatalog, setShowGaiaCatalog] = useState(true);
@@ -369,7 +379,7 @@ export function SkyContextAladin({ wcs, shape, gaiaStars, streak }: Props) {
     aladinRef.current.setImageSurvey(survey);
   }, [open, survey]);
 
-  // Update target centre, FOV, orange footprint box, and optional measured streak
+  // Update target centre, FOV, orange footprint box, selected star, and optional measured streak
   useEffect(() => {
     if (!open || !aladinRef.current || !overlayRef.current || !window.A || loading) return;
     const A = window.A;
@@ -380,7 +390,15 @@ export function SkyContextAladin({ wcs, shape, gaiaStars, streak }: Props) {
     if (streak) {
       overlayRef.current.add(A.polyline(streak, { color: "#ef4444", lineWidth: 2.5 }));
     }
-  }, [open, loading, ra, dec, contextFovDeg, footprintCorners, streak]);
+    if (selectedStar) {
+      overlayRef.current.add(
+        A.circle(selectedStar.ra, selectedStar.dec, Math.max(contextFovDeg * 0.035, 0.008), {
+          color: "#38bdf8",
+          lineWidth: 2,
+        }),
+      );
+    }
+  }, [open, loading, ra, dec, contextFovDeg, footprintCorners, streak, selectedStar]);
 
   // Show/hide and populate Gaia DR3 stars (VizieR TAP 400 brightest in wider field, fallback to bundle)
   useEffect(() => {
@@ -474,6 +492,7 @@ export function SkyContextAladin({ wcs, shape, gaiaStars, streak }: Props) {
               fovDeg={contextFovDeg}
               footprintCorners={footprintCorners}
               streak={streak}
+              selectedStar={selectedStar}
               stars={fallbackStars}
               showGaia={showGaiaCatalog}
             />
@@ -504,19 +523,37 @@ export function SkyContextAladin({ wcs, shape, gaiaStars, streak }: Props) {
           )}
 
           <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
-            <div className="inline-flex overflow-hidden rounded-md border border-white/10 bg-white/[0.03]">
-              {SURVEYS.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => setSurvey(s.id)}
-                  className={`px-2 py-0.5 font-medium transition ${
-                    survey === s.id ? "bg-amber-400 text-slate-950" : "text-slate-300 hover:bg-white/5"
-                  }`}
-                >
-                  {s.label}
-                </button>
-              ))}
+            <div className="flex items-center gap-1.5">
+              {!fallbackMode && (
+                <>
+                  <div className="inline-flex overflow-hidden rounded-md border border-white/10 bg-white/[0.03]">
+                    {SURVEYS.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => setSurvey(s.id)}
+                        className={`px-2 py-0.5 font-medium transition ${
+                          survey === s.id ? "bg-amber-400 text-slate-950" : "text-slate-300 hover:bg-white/5"
+                        }`}
+                      >
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      aladinRef.current?.gotoRaDec(ra, dec);
+                      aladinRef.current?.setFov(contextFovDeg);
+                    }}
+                    title="Recentre on target field"
+                    className="inline-flex items-center gap-1 rounded border border-white/10 px-1.5 py-0.5 text-[10px] text-slate-300 hover:bg-white/10"
+                  >
+                    <Crosshair size={10} />
+                    <span>Recentre</span>
+                  </button>
+                </>
+              )}
             </div>
 
             <label className="inline-flex cursor-pointer items-center gap-1.5 text-slate-300">

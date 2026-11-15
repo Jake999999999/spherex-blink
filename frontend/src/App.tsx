@@ -1353,6 +1353,7 @@ export default function App() {
                 wcs={m.wcs}
                 shape={[bundle.height, bundle.width]}
                 gaiaStars={bundle.gaia.stars}
+                selectedStar={selected ? { ra: selected.ra, dec: selected.dec } : mapPoint ? { ra: mapPoint.ra, dec: mapPoint.dec } : null}
                 streak={
                   motion && motion.pts.length >= 2
                     ? [
