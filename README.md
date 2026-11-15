@@ -12,7 +12,10 @@ A NASA Space Apps Challenge 2026 entry. Not a NASA product.
 - **Difference**: subtract an older visit from a newer one. Stars that didn't change disappear; a moving object leaves an amber/cyan pair, a brightening star turns amber.
 - **Pick a wavelength**: SPHEREx's six detectors cover 0.75–5.0 µm. Cool objects (brown dwarfs) get brighter at long wavelengths.
 - **Click any marked star** for its spectrum (one dot per SPHEREx exposure), its light curve and a table/CSV of every measurement.
+- **Colour**: false-colour pictures from SPHEREx's 102-colour all-sky map, with presets (methane, water, warm dust) or your own three wavelength windows. Brown dwarfs turn magenta in the methane view. Click any point for its map spectrum.
 - **Measure motion**: centroid a moving star in each frame and fit its speed, compared with ESA's Gaia catalogue.
+- **How accurate is it?** Checked against 2MASS, WISE and Gaia: brightness within 3%, positions within 0.6″, motions within 1% (see [`docs/VALIDATION.md`](docs/VALIDATION.md)).
+- **Listen and read**: every spectrum and light curve can be played as sound and comes with a plain-language summary; single-key shortcuts can be switched off; blinking never exceeds 3 changes per second.
 - **Guided tour** (two minutes) for first-time visitors.
 - **Shareable links**: the view (target, mode, wavelength, visits) is kept in the URL.
 
@@ -38,7 +41,7 @@ bun install
 bun run dev        # http://127.0.0.1:5186
 ```
 
-The processed data for all five targets (4.4 MB) is committed in `frontend/public/benchmarks/`, so the app needs no server and works offline. `bun run build` produces a static site in `frontend/dist/` that can be hosted anywhere (it uses relative paths, so a subfolder such as GitHub Pages works).
+The processed data for all five targets (6 MB) is committed in `frontend/public/benchmarks/`, so the app needs no server and works offline. `bun run build` produces a static site in `frontend/dist/` that can be hosted anywhere (it uses relative paths, so a subfolder such as GitHub Pages works).
 
 Tests:
 
@@ -52,11 +55,13 @@ Re-processing the data from NASA's archive (downloads roughly 1.5 GB of image cu
 ```bash
 cd backend
 uv run python -m spherex_blink bake all      # or: bake barnard eps-ind-b ...
+uv run python -m spherex_blink validate      # accuracy report: docs/VALIDATION.md
 ```
 
 ## How it works
 
 - [`docs/HOW-IT-WORKS.md`](docs/HOW-IT-WORKS.md): the science and the processing, step by step.
+- [`docs/VALIDATION.md`](docs/VALIDATION.md): how accurate the numbers are, computed against 2MASS, WISE and Gaia.
 - [`docs/BUILD-LOG.md`](docs/BUILD-LOG.md): how this was built, what went wrong and what we changed.
 - [`PLAN.md`](PLAN.md): verified data facts with sources, milestones and status.
 - [`SPEC-original.md`](SPEC-original.md): the first, unverified spec this project started from (kept for the record; several of its facts were wrong).

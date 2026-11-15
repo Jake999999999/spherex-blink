@@ -90,6 +90,19 @@ A field star near each target was checked to stay constant to about 2–5% betwe
 
 `index.json` lists the targets. All five bundles total 4.4 MB.
 
+### 2.9 The colour map (`cube.py`)
+
+SPHEREx also publishes an all-sky map in all 102 colours (`spherex_dr1_cube`): 12,288 tiles on a HEALPix grid, each 512×512 pixels of 12.88″ by 102 channels, 321 MB. Each channel is the average of every visit up to the release (April 2025 – May 2026).
+
+- **Finding the tile without a search:** the tile number is the HEALPix (order 5, nested) pixel of the position, computed by our own `ang2pix_nest` and checked against IRSA's answers for six positions. A field near a tile corner can need up to four tiles. The release folder (`hips_20261026`) is read from the S3 bucket listing, so a new release doesn't break it.
+- **Reading only what's needed:** the files are on a public S3 mirror that allows byte-range requests. Each channel is a 1 MB block, so the window around a field is one small request per channel (102 requests, a few seconds). The header walk checks the data is a plain, uncompressed image.
+- Pixels never observed (`NHITS = 0`) become empty. The tiles' `FLAGS` are not used for masking yet (their bit meanings aren't checked).
+- The window is resampled onto a north-up grid at 12.3″ per pixel (twice the main grid) and stored as `cube.bin` (≈ 0.25–0.7 MB per target).
+
+### 2.10 Validation (`validate.py`)
+
+`uv run python -m spherex_blink validate` compares the baked numbers with independent catalogues and writes [`VALIDATION.md`](VALIDATION.md): brightness against 2MASS and AllWISE (synthetic photometry over each band, isolated unsaturated stars), positions against Gaia, motions against Gaia/literature, visit-to-visit repeatability of constant stars, and the map against the single exposures. The app's "How accurate is this?" section reads the same numbers.
+
 ## 3. The app (`frontend/`)
 
 React + TypeScript, drawing the sky with WebGL2.
@@ -118,7 +131,19 @@ A click picks the nearest baked source within 3 pixels of where it should be on 
 
 For each frame in the blink (including WISE 2010), the star's centre is found by a background-subtracted, light-weighted centroid within 3 pixels of the Gaia position for that date (that is only the starting point; the centroid follows the light). A straight line is then fitted through position against time by least squares, giving motion east and north in ″/yr, the direction (position angle) and an error from the scatter. It is only offered when the star should move more than one pixel across the frames.
 
-### 3.5 Tour, URL and keys
+### 3.5 Colour mode (`src/lib/colour.ts`, `src/components/ColourMixer.tsx`)
+
+Three wavelength windows (red, green, blue) each become one colour: the mean of the map channels inside the window, skipping blank channels. *Balanced* stretches each colour on its own; *True ratios* uses one brightness scale, so a colour means more light at that wavelength. Presets: short-to-long, methane (green on the 3.3 µm band), water (green on 1.4 µm), warm dust. In true ratios with the methane preset, Eps Indi B measures R 0.69 / G 0.09 / B 0.22 (magenta) while an ordinary star next to it measures R 0.23 / G 0.35 / B 0.43.
+
+Clicking in colour mode gives the **map spectrum** of that spot: the same 15.4″ aperture and local-sky subtraction as the single-exposure points, so both share an axis. Because each map channel was observed on a different date, the map spectrum is hidden for variable stars and for stars that move more than a quarter of the aperture radius from their mid-span position (Barnard's Star), with a note saying why.
+
+### 3.6 Listening and reading (`src/lib/sonify.ts`)
+
+- **Listen** plays a spectrum from short to long wavelength (or a light curve from early to late) as a 3-second glide, pitch rising with brightness (220–880 Hz, logarithmic); absorption dips are heard as drops. Sound starts only on a click and never under `?silent`; Esc stops it.
+- Every chart has a sentence underneath, generated from the data: where the spectrum peaks and which dips line up with reference bands (only dips deeper than 25% *and* well above the noise), or whether a light curve changes. Light curves are first divided by the star's typical brightness at each wavelength and compared visit by visit, so a star that is merely brighter at some wavelengths than others isn't called variable.
+- Other accessibility rules: blinking is capped at 3 frame changes per second (the WCAG flash limit) and doesn't start on its own if the system asks for reduced motion; frame changes are announced to screen readers only when you step, not during playback; the sky view has a text description; single-key shortcuts can be switched off in Help and are ignored while typing or using a slider; small text is at least 7.9:1 contrast.
+
+### 3.7 Tour, URL and keys
 
 The guided tour (`src/lib/tour.ts`) is a list of steps; each can set up the view, spotlight a part of the page and wait for the visitor to try one thing. The view is mirrored in the URL (`?target=…&mode=…&band=…&t1=…&t2=…`). Keys: Space, ← →, D, G, P, R, Esc. `?silent` is for automated testing.
 

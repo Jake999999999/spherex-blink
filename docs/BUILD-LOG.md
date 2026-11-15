@@ -67,10 +67,31 @@ The owner's feedback: it worked but looked pixelated and the interface was confu
 
 The first tour was three paragraphs of text and left the owner confused. The new tour has nine short steps. Each spotlights one part of the screen, asks you to try one thing (click the 2010 dot, press play, switch to Difference, click the brown dwarfs), checks that you did it, and then explains what you just saw. Its logic is unit-tested, and every step was clicked through in the browser.
 
+## 9. Colour, validation and accessibility
+
+The owner asked for SPHEREx's 102 colours, proof of accuracy, and accessibility, plus a design for an "any coordinate" live mode (planned, not built). Before writing code:
+
+- **Live checks:** web pages cannot read IRSA's services directly (no CORS). But the public S3 mirror of the same files allows browser access, including byte ranges, and the all-sky cube tiles follow a fixed naming pattern. So colour at any coordinate can work with no server at all; only blinking at any coordinate needs a tiny metadata proxy.
+- **Architect review:** a second model reviewed the plan and found five must-fix issues:
+  - the map spectra needed the same units as the exposure spectra;
+  - time-averaged spectra of moving or variable stars mislead;
+  - cube pixels with no observations needed masking, and compressed files would break the byte offsets;
+  - screen-reader announcements must not fire on every blink frame;
+  - the biggest risk in the planned live mode is porting the pipeline to TypeScript, which needs test files generated from Python.
+
+  It also caught a real bug: resampled variance used interpolated values instead of Σw²·var.
+
+What came out:
+
+- **Colour mode** works from the cube window read straight from S3, and the brown dwarfs measurably turn magenta in the methane view. A first rule hiding map spectra for "fast movers" was too strict (it hid Eps Indi B); it now uses the aperture size.
+- **Validation** turned out better than expected: fluxes match 2MASS/WISE within 3% (2–6% spread) even without an aperture correction, positions within 0.56″, motions within 1%.
+- **The pulsation was overstated:** "fades to half" compared different wavelengths. Divided by wavelength and compared visit by visit, the giant dims by about a third; the tour and docs were corrected.
+- **The chart descriptions first got two things wrong.** They called constant stars "variable" (wavelength trend and single-exposure noise) and read noise in empty sky as "dips". Both were fixed with tests.
+
 ## Testing, in numbers
 
-- Pipeline: 19 pytest tests (resampling accuracy, stacking, flag handling, photometry within 2%, ring photometry with a saturated core, retry logic, catalogue parsing, Gaia propagation to 0.5″).
-- App: 37 bun tests (sky coordinates, stretch maths, URL state, bundle format, centroid and motion fit, spectra helpers, saturated fill, tour steps and card placement), plus TypeScript type-checking and a production build.
+- Pipeline: 34 pytest tests (including the cube reader against a fake Range server and the HEALPix tile lookup against IRSA's answers) (resampling accuracy, stacking, flag handling, photometry within 2%, ring photometry with a saturated core, retry logic, catalogue parsing, Gaia propagation to 0.5″).
+- App: 50 bun tests (including colour maths, map spectra, sonification and chart descriptions) (sky coordinates, stretch maths, URL state, bundle format, centroid and motion fit, spectra helpers, saturated fill, tour steps and card placement), plus TypeScript type-checking and a production build.
 - Browser checks after each milestone, on real data.
 
 ## Open decisions
