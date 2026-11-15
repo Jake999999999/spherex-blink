@@ -28,6 +28,8 @@ export interface TourStep {
   id: string;
   /** data-tour anchor to spotlight; none = centred card */
   anchor?: string;
+  /** additional data-tour regions that stay un-darkened alongside the primary anchor */
+  alsoLit?: string[];
   title: string;
   body: string;
   /** the one thing to try in this step */
@@ -60,6 +62,7 @@ export const TOUR: TourStep[] = [
   {
     id: "wise",
     anchor: "timeline",
+    alsoLit: ["sky"],
     title: "Go back to 2010",
     body: "Each dot on the timeline is one photo. The orange dot on the left is from 2010, taken by an older NASA telescope called WISE.",
     task: "Click the orange 2010 dot.",
@@ -70,6 +73,7 @@ export const TOUR: TourStep[] = [
   {
     id: "blink",
     anchor: "play",
+    alsoLit: ["sky", "timeline"],
     title: "Blink!",
     body:
       "Flipping quickly between photos is called blinking. Anything that stays still is a distant star; anything that jumps is close or fast. This is how Pluto was discovered in 1930.",
@@ -81,6 +85,7 @@ export const TOUR: TourStep[] = [
   {
     id: "diff",
     anchor: "view",
+    alsoLit: ["sky"],
     title: "Subtract two photos",
     body:
       "Now a pair of brown dwarfs: objects too small to be stars, too big to be planets. Instead of flipping, we can subtract an older photo from a newer one, so everything that didn't change disappears.",
@@ -93,6 +98,7 @@ export const TOUR: TourStep[] = [
   {
     id: "spectrum",
     anchor: "sky",
+    alsoLit: ["spectrum"],
     title: "Split its light into colours",
     body:
       "SPHEREx's superpower is colour: it measures each object at 102 infrared wavelengths. That's a spectrum, and it tells you what something is made of.",
@@ -104,6 +110,7 @@ export const TOUR: TourStep[] = [
   {
     id: "molecules",
     anchor: "spectrum",
+    alsoLit: ["sky"],
     title: "Read the spectrum",
     body:
       "Each dot is one SPHEREx exposure. The deep dips line up with the labels at the top: water (H₂O) and methane (CH₄) absorbing light in the brown dwarfs' cold atmospheres. A normal star doesn't show this; try clicking a different star later to compare.",
@@ -113,6 +120,7 @@ export const TOUR: TourStep[] = [
   {
     id: "colour",
     anchor: "view",
+    alsoLit: ["sky"],
     title: "See the molecules as colour",
     body:
       "SPHEREx splits infrared light into 102 colours. Colour view paints three of them as red, green and blue. This one puts green right on methane's wavelength, so anything with methane loses its green.",
@@ -125,6 +133,7 @@ export const TOUR: TourStep[] = [
   {
     id: "lightcurve",
     anchor: "spectrum",
+    alsoLit: ["sky"],
     title: "Watch a star breathe",
     body:
       "This giant star swells and shrinks over about a year. The light curve shows its brightness on every date SPHEREx looked: it dims by about a third, then brightens again. (Its centre is so bright that we measure a ring of light around it instead.)",
