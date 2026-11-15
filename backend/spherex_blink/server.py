@@ -24,6 +24,7 @@ import hashlib
 import json
 import math
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -220,6 +221,48 @@ def prune(keep: int = LIVE_KEEP) -> None:
         shutil.rmtree(p, ignore_errors=True)
 
 
+SAMP_MAX_BYTES = 16 * 1024 * 1024
+SAMP_MAX_ITEMS = 8
+SAMP_TTL_S = 600
+SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,80}$")
+
+
+class SampStore:
+    """Short-lived in-memory staging for Web SAMP hand-off (Aladin/TOPCAT/DS9)."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.items: dict[str, tuple[str, bytes, str, float]] = {}
+
+    def put(self, filename: str, data: bytes, content_type: str) -> tuple[str, str]:
+        safe = re.sub(r"[^A-Za-z0-9._-]", "_", filename)[:80] or "export.bin"
+        if not SAFE_NAME_RE.match(safe):
+            safe = "export.bin"
+        token = secrets.token_hex(8)
+        now = time.monotonic()
+        with self.lock:
+            self._prune_locked(now)
+            while len(self.items) >= SAMP_MAX_ITEMS:
+                oldest = min(self.items, key=lambda k: self.items[k][3])
+                del self.items[oldest]
+            self.items[token] = (safe, data, content_type, now)
+        return token, safe
+
+    def get(self, token: str, filename: str) -> tuple[bytes, str] | None:
+        now = time.monotonic()
+        with self.lock:
+            self._prune_locked(now)
+            item = self.items.get(token)
+            if not item or item[0] != filename:
+                return None
+            return item[1], item[2]
+
+    def _prune_locked(self, now: float) -> None:
+        expired = [k for k, v in self.items.items() if now - v[3] > SAMP_TTL_S]
+        for k in expired:
+            del self.items[k]
+
+
 _resolve_cache: dict[str, dict] = {}
 
 
@@ -245,6 +288,7 @@ def resolve_name(name: str) -> dict:
 
 class Handler(BaseHTTPRequestHandler):
     jobs: Jobs
+    samp: SampStore = SampStore()
     server_version = f"spherex-blink/{__version__}"
 
     def log_message(self, fmt: str, *args) -> None:  # quieter console
@@ -291,12 +335,43 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
             return
+        if len(parts) == 4 and parts[:2] == ["api", "samp"] and ID_RE.match(parts[2]) and SAFE_NAME_RE.match(parts[3]):
+            item = self.samp.get(parts[2], parts[3])
+            if not item:
+                return self._json(404, {"error": "not found"})
+            data, ctype = item
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Disposition", f'inline; filename="{parts[3]}"')
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+            return
         return self._json(404, {"error": "not found"})
 
     def do_POST(self) -> None:  # noqa: N802
         if not self._host_ok():
             return self._json(403, {"error": "this server only answers this computer"})
         parts = [p for p in urllib.parse.urlparse(self.path).path.split("/") if p]
+        if parts == ["api", "samp"]:
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                return self._json(400, {"error": "bad Content-Length"})
+            if length <= 0 or length > SAMP_MAX_BYTES:
+                return self._json(413, {"error": f"payload must be 1..{SAMP_MAX_BYTES} bytes"})
+            data = self.rfile.read(length)
+            fname = self.headers.get("X-Filename") or "export.fits"
+            ctype = (self.headers.get("Content-Type") or "application/octet-stream").split(";")[0].strip()
+            token, safe = self.samp.put(fname, data, ctype)
+            host_hdr = self.headers.get("Host") or f"{HOST}:{PORT}"
+            # Direct desktop SAMP clients to the Python server port if proxied through Vite.
+            if host_hdr.endswith(f":{PORT}"):
+                base = f"http://{host_hdr}"
+            else:
+                base = f"http://{HOST}:{PORT}"
+            return self._json(200, {"url": f"{base}/api/samp/{token}/{safe}"})
         if (self.headers.get("Content-Type") or "").split(";")[0].strip() != "application/json":
             return self._json(415, {"error": "send JSON"})
         n = min(int(self.headers.get("Content-Length") or 0), 4096)

@@ -74,3 +74,18 @@ def test_post_requires_json_and_valid_coordinates(running):
 
     assert post(b"ra=1", "application/x-www-form-urlencoded")[0] == 415
     assert post(b'{"ra": "nan", "dec": 0}')[0] == 400
+
+
+def test_samp_staging_roundtrip_and_bounds(running):
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{running}/api/samp",
+        data=b"SIMPLE  =                    T",
+        method="POST",
+        headers={"Content-Type": "application/fits", "X-Filename": "barnard.fits"},
+    )
+    with urllib.request.urlopen(req) as r:
+        assert r.status == 200
+        url = json.loads(r.read())["url"]
+    path = urllib.parse.urlparse(url).path
+    assert _get(running, path) == (200, b"SIMPLE  =                    T")
+    assert _get(running, "/api/samp/0000000000000000/nope.fits")[0] == 404

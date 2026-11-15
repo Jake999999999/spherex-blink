@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RotateCcw, Compass, Route, Keyboard, TriangleAlert, Activity, ChevronRight, Download } from "lucide-react";
+import { RotateCcw, Compass, Route, Keyboard, TriangleAlert, Activity, ChevronRight, Download, Send } from "lucide-react";
 import { buildFits, card, download, longCards, wcsCards } from "./lib/fitsio";
+import { sendViaSamp } from "./lib/samp";
 import { GAIA_G_LIMIT, SkyCanvas, formatHover, type HoverInfo, type SkyCanvasHandle } from "./components/SkyCanvas";
 import { SpectrumPanel, type MapOverlay, type PanelTab } from "./components/SpectrumPanel";
 import { ColourMixer } from "./components/ColourMixer";
@@ -475,8 +476,8 @@ export default function App() {
   }, [isColour, selected, bundle, mapOverlay, mix]);
 
   // S5: save what's on screen as FITS (raw values, never the display-only fills), with WCS and provenance
-  const exportFits = useCallback(() => {
-    if (!bundle) return;
+  const currentFitsPayload = useCallback(() => {
+    if (!bundle) return null;
     const m = bundle.meta;
     const common = [
       card("ORIGIN", "SPHEREx Blink"),
@@ -538,9 +539,32 @@ export default function App() {
             ...longCards("COMMENT", "Inverse-variance stack of zodi-subtracted single exposures, resampled north-up."),
           ];
       name += wise ? "-wise2010" : `-v${step.epoch + 1}-d${state.band}`;
-    } else return;
-    download(`${name}.fits`, buildFits(axes, data, [...wcsCards(wcs), ...common, ...extra]), "application/fits");
+    } else return null;
+    return { filename: `${name}.fits`, bytes: buildFits(axes, data, [...wcsCards(wcs), ...common, ...extra]) };
   }, [bundle, isColour, cube, colourView, mix, isDiff, diffData, state.band, state.t1, state.t2, hasMatched, step]);
+
+  const exportFits = useCallback(() => {
+    const p = currentFitsPayload();
+    if (p) download(p.filename, p.bytes, "application/fits");
+  }, [currentFitsPayload]);
+
+  const [sampNote, setSampNote] = useState<string | null>(null);
+  const sampTimer = useRef<number | null>(null);
+  const flashSamp = useCallback((msg: string) => {
+    setSampNote(msg);
+    if (sampTimer.current) window.clearTimeout(sampTimer.current);
+    sampTimer.current = window.setTimeout(() => setSampNote(null), 5000);
+  }, []);
+  const sampFits = useCallback(async () => {
+    const p = currentFitsPayload();
+    if (!p) return;
+    try {
+      await sendViaSamp({ filename: p.filename, data: p.bytes, contentType: "application/fits", mtype: "image.load.fits", label: p.filename });
+      flashSamp("Sent FITS to SAMP hub");
+    } catch (e) {
+      flashSamp(e instanceof Error ? e.message : String(e));
+    }
+  }, [currentFitsPayload, flashSamp]);
 
   const motion = useMemo(() => {
     if (!bundle || !selected) return null;
@@ -850,10 +874,19 @@ export default function App() {
                 <Download size={13} />
                 <span className="ml-1">FITS</span>
               </OverlayBtn>
+              <OverlayBtn active={false} onClick={sampFits} title="Send this FITS image to Aladin, TOPCAT, or DS9 via Web SAMP (requires local server)">
+                <Send size={12} />
+                <span className="ml-1">SAMP</span>
+              </OverlayBtn>
               <OverlayBtn active={false} onClick={() => canvasRef.current?.resetView()} title="Reset zoom (R)">
                 <RotateCcw size={13} />
               </OverlayBtn>
             </div>
+            {sampNote && (
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-lg border border-sky-400/30 bg-slate-950/90 px-3 py-1.5 text-xs text-sky-100 shadow-lg">
+                {sampNote}
+              </div>
+            )}
           </div>
 
           {/* bottom bar: timeline or compare */}

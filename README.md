@@ -40,7 +40,7 @@ A NASA Space Apps Challenge 2026 entry. Not a NASA product.
 | Gaia / WISE overlays | Gaia DR3 stars moved to each frame's date; WISE and NEOWISE frames in the blink |
 | Coordinates in the URL for embedding | `?ra=…&dec=…&fov=…` opens and builds that patch |
 | Contamination flags | Per-pixel overlay and per-visit summary of SPHEREx's flags |
-| Astropy / Aladin tools | FITS images and ECSV tables that load straight into astropy (tested); hand-off to Aladin/TOPCAT (SAMP) is on the roadmap |
+| Astropy / Aladin tools | FITS images and ECSV tables that load straight into astropy (tested); Web SAMP hand-off to Aladin/TOPCAT/DS9 with the local server |
 
 ## The demo targets
 

@@ -125,6 +125,7 @@ export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, o
     const dpr = window.devicePixelRatio || 1;
     const W = wrap.clientWidth;
     const H = wrap.clientHeight;
+    if (W <= 0 || H <= 0) return;
     r.resize(W, H, dpr);
     const v = viewRef.current;
     r.draw({ ...draw, zoom: v.zoom, centerX: v.cx, centerY: v.cy });
@@ -149,9 +150,19 @@ export function SkyCanvas({ bundle, draw, step, diffMjds, showGaia, handleRef, o
 
   useEffect(() => {
     const el = wrapRef.current!;
-    const ro = new ResizeObserver(() => paint());
+    let raf = 0;
+    const schedule = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => paint());
+    };
+    const ro = new ResizeObserver(schedule);
     ro.observe(el);
-    return () => ro.disconnect();
+    window.addEventListener("resize", schedule);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      window.removeEventListener("resize", schedule);
+    };
   }, [paint]);
 
   useImperativeHandle(handleRef, () => ({

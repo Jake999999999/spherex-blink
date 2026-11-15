@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Download, Square, Volume2, X } from "lucide-react";
+import { Download, Send, Square, Volume2, X } from "lucide-react";
 import { buildEcsv, download as saveFile } from "../lib/fitsio";
+import { sendViaSamp } from "../lib/samp";
 import { mjdToYear as yearOf } from "../lib/astro";
 import { describeLightCurve, describeSpectrum, detrendByWavelength, playPlan, sonifyPlan, stopSound } from "../lib/sonify";
 import type { Epoch } from "../lib/bundle";
@@ -115,12 +116,12 @@ export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, 
   };
 
   // ECSV: astropy's self-describing table (units, types, flags), so the numbers keep their meaning
-  const downloadEcsv = () => {
+  const currentEcsvPayload = (): { filename: string; text: string } | null => {
     const name = source?.name ?? title ?? "map point";
     if (source) {
-      saveFile(
-        `${source.id}-spherex.ecsv`,
-        buildEcsv(
+      return {
+        filename: `${source.id}-spherex.ecsv`,
+        text: buildEcsv(
           [
             { name: "mjd", datatype: "float64", unit: "d", description: "mid-exposure date", values: pts.map((p) => p.mjd) },
             { name: "year", datatype: "float64", unit: "yr", values: pts.map((p) => Number(yearOf(p.mjd).toFixed(5))) },
@@ -139,21 +140,38 @@ export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, 
             produced_by: "SPHEREx Blink",
           },
         ),
-        "text/plain",
-      );
+      };
     } else if (map?.spectrum) {
-      saveFile(
-        "map-point-spherex.ecsv",
-        buildEcsv(
+      return {
+        filename: "map-point-spherex.ecsv",
+        text: buildEcsv(
           [
             { name: "wavelength", datatype: "float64", unit: "um", values: map.spectrum.wl },
             { name: "flux", datatype: "float64", unit: "mJy", description: "15.4 arcsec aperture on the time-averaged map, local sky subtracted", values: map.spectrum.flux },
           ],
           { source: name, data: "SPHEREx 102-channel map (time-averaged)", produced_by: "SPHEREx Blink" },
         ),
-        "text/plain",
-      );
+      };
     }
+    return null;
+  };
+
+  const downloadEcsv = () => {
+    const p = currentEcsvPayload();
+    if (p) saveFile(p.filename, p.text, "text/plain");
+  };
+
+  const [sampMsg, setSampMsg] = useState<string | null>(null);
+  const sendSamp = async () => {
+    const p = currentEcsvPayload();
+    if (!p) return;
+    try {
+      await sendViaSamp({ filename: p.filename, data: p.text, contentType: "text/plain", mtype: "table.load.votable", label: p.filename });
+      setSampMsg("Sent table to SAMP hub");
+    } catch (e) {
+      setSampMsg(e instanceof Error ? e.message : String(e));
+    }
+    window.setTimeout(() => setSampMsg(null), 5000);
   };
 
   return (
@@ -202,10 +220,19 @@ export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, 
         >
           <Download size={13} /> ECSV
         </button>
+        <button
+          title="Send ECSV table to TOPCAT / Aladin via Web SAMP (requires local server)"
+          aria-label="Send table via SAMP"
+          onClick={sendSamp}
+          className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs text-slate-300 hover:bg-sky-400/10"
+        >
+          <Send size={12} /> SAMP
+        </button>
         <button title="Close" aria-label="Close" onClick={onClose} className="rounded p-1 text-slate-300 hover:bg-sky-400/10">
           <X size={14} />
         </button>
       </header>
+      {sampMsg && <p className="mb-1 text-[11px] text-sky-200">{sampMsg}</p>}
       {children}
       {pts.length > 0 && nGood < pts.length * 0.2 && !(shownTab === "lightcurve" && lcMeasure === "ring") && (
         <p className="mb-1 text-[11px] text-amber-300">

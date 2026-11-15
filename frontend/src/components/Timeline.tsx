@@ -103,8 +103,8 @@ function Track({
       ? { on: "border-amber-300 bg-amber-300", off: "border-amber-400/60 bg-slate-950 hover:border-amber-300", text: "text-amber-200" }
       : { on: "border-sky-300 bg-sky-300", off: "border-sky-400/60 bg-slate-950 hover:border-sky-300", text: "text-sky-100" };
   return (
-    <div className="min-w-[90px]" style={{ flexGrow: grow, flexBasis: 0 }}>
-      <div className="relative mx-2 h-10">
+    <div className="min-w-[110px]" style={{ flexGrow: grow, flexBasis: 0 }}>
+      <div className="relative mx-6 h-10">
         <div className="absolute left-0 right-0 top-[7px] h-px bg-slate-700" />
         {items.map(({ s, i }, k) => {
           const active = i === current;

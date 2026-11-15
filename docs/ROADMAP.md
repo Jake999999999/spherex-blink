@@ -9,7 +9,7 @@ What SPHEREx Blink does today, and what's planned. Suggestions and pull requests
 - WISE 2010 and NEOWISE 2014–2024 frames, so nearby stars move across 16 years; motion fits checked against Gaia.
 - Any position in the sky: with a local server (everything), or in the browser from NASA's S3 copy (colour map, blink and flags).
 - Validation against 2MASS, AllWISE and Gaia, regenerated from the data ([VALIDATION.md](VALIDATION.md)).
-- Exports: FITS images, ECSV/CSV tables; links that carry the view and position.
+- Exports: FITS images, ECSV/CSV tables; links that carry the view and position; Web SAMP hand-off to Aladin, TOPCAT and DS9 when running with the local server.
 - PSF photometry with SPHEREx's official PSFs (star-to-star scatter against 2MASS/WISE about 1–4%), and error bars calibrated on steady stars.
 - Bring your own data: SPHEREx files downloaded from IRSA, or a whole field shared by someone who ran the pipeline ([GET-THE-DATA.md](GET-THE-DATA.md)).
 
@@ -20,7 +20,7 @@ What SPHEREx Blink does today, and what's planned. Suggestions and pull requests
 - **Outside review** of the methods and the validation by people who know SPHEREx data.
 - **Wavelength-matched differences in the browser**, using each exposure's per-pixel wavelength table (`WCS-WAVE`).
 - **More built-in targets**, as long as the site stays small: for example Teegarden's Star (another fast mover) or a known variable with a long SPHEREx record.
-- **Hand-off to other tools**: send images and tables to Aladin, TOPCAT or DS9 (SAMP) once the site is hosted.
+- **Hand-off to other tools without the local server**: Web SAMP works today with the local server; sending files directly from a static hosted site needs real file URLs.
 - **PSF photometry for saturated stars**, fitting the unsaturated wings.
 - **WISE, NEOWISE and Gaia in browser mode.** These archives can't be reached from a web page today; it needs a source that allows it, or a small hosted relay.
 
