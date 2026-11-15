@@ -100,3 +100,18 @@ def test_s3_key_from_split_csv_row():
     row = {"access_url": "https://irsa/x.fits", "cloud_access": '{"aws": {"bucket_name": "nasa-irsa-spherex"', None: [' "key":"dr1/hips5_cube/a/Npix1_cube.fits"', ' "region": "us-east-1"}}']}
     assert cube.s3_key(row) == "dr1/hips5_cube/a/Npix1_cube.fits"
     assert cube.s3_key({"access_url": "x"}) is None
+
+
+@pytest.mark.parametrize(
+    "ra,dec,npix",
+    # reference tiles returned by IRSA's SIA for spherex_dr1_cube on 2026-11-14
+    [(331.0977, -56.8010, 11391), (269.4480, 4.7465, 7945), (275.8246, 64.3435, 3837), (76.9565, 30.4013, 277), (133.7583, -7.2421, 10226), (45.0, -85.0, 8195)],
+)
+def test_ang2pix_nest_matches_irsa_tiles(ra, dec, npix):
+    assert cube.ang2pix_nest(32, ra, dec) == npix
+
+
+def test_field_tiles_and_key():
+    assert cube.field_tiles(331.0977, -56.8010, 0.03) == [11391]
+    assert len(cube.field_tiles(0.0, 89.99, 0.05)) >= 2  # around the pole the field crosses faces
+    assert cube.tile_key(11391, "hips_20261026") == "dr1/hips5_cube/hips_20261026/Norder5/Dir10000/Npix11391_cube.fits"

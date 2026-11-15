@@ -23,6 +23,7 @@ class Target:
     max_exposures: int = 480  # deep-field targets get sub-sampled evenly in time
     notes: list[str] = field(default_factory=list)
     status: str = "ready"  # "ready" | "conditional"
+    variable: bool = False  # brightness changes: time-averaged map spectra would mix phases
 
 
 TARGETS: dict[str, Target] = {
@@ -53,6 +54,7 @@ TARGETS: dict[str, Target] = {
         ),
         Target(
             id="nep-lpv",
+            variable=True,
             name="Pulsating red giant (Gaia DR3 2160548942811758720)",
             tagline="A giant star that swells and fades",
             blurb="A long-period variable (Gaia: ~372-day period) next to the north ecliptic pole, where "
@@ -66,6 +68,7 @@ TARGETS: dict[str, Target] = {
         ),
         Target(
             id="rw-aur",
+            variable=True,
             name="RW Aurigae",
             tagline="A young star in a dusty disc",
             blurb="A young star still surrounded by a dusty disc; it has dimmed and brightened in the "

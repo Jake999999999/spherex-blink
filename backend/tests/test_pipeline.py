@@ -209,3 +209,16 @@ def test_parse_ipac_table():
     (row,) = gaia.parse_ipac_table(text)
     assert row["designation"] == "J085510.74-071442.5"
     assert float(row["dec"]) == pytest.approx(-7.2451456)
+
+
+def test_bilinear_variance_is_sum_of_squared_weights():
+    img = np.array([[1.0, 3.0], [1.0, 3.0]])
+    var = np.full((2, 2), 4.0)
+    good = np.ones((2, 2), bool)
+    v, s2, ok = frames.bilinear(img, var, good, np.array([[0.0]]), np.array([[0.5]]))
+    assert v[0, 0] == pytest.approx(2.0)
+    assert s2[0, 0] == pytest.approx(0.5 * 0.5 * 4 + 0.5 * 0.5 * 4)  # = 2, not 4
+    assert ok[0, 0]
+    # exactly on a pixel: variance unchanged
+    _, s2b, _ = frames.bilinear(img, var, good, np.array([[1.0]]), np.array([[1.0]]))
+    assert s2b[0, 0] == pytest.approx(4.0)

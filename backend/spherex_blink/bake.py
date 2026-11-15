@@ -17,7 +17,7 @@ from pathlib import Path
 import httpx
 import numpy as np
 
-from . import __version__, frames, gaia, irsa, photometry, wise
+from . import __version__, cube, frames, gaia, irsa, photometry, wise
 from .targets import TARGETS, Target
 
 OUT_ROOT = Path(__file__).resolve().parents[2] / "frontend" / "public" / "benchmarks"
@@ -43,7 +43,7 @@ def write_index(out_root: Path = OUT_ROOT) -> list[dict]:
     return found
 
 
-TEXT_FIELDS = ("name", "tagline", "blurb", "notes", "status", "default_mode", "default_band")
+TEXT_FIELDS = ("name", "tagline", "blurb", "notes", "status", "default_mode", "default_band", "variable")
 
 
 def retext(target_id: str, out_root: Path = OUT_ROOT) -> bool:
@@ -284,8 +284,22 @@ def bake(target_id: str, client: httpx.Client | None = None, out_root: Path = OU
         n_pts = sum(1 for f in spectra["sources"][0]["flux"] if f is not None)
         print(f"  photometry: {len(sources)} sources, target has {n_pts} points", flush=True)
 
+        cube_arr, cube_desc = None, None
+        try:
+            cube_arr, cube_desc = cube.bake_cube(client, cra, cdec, t.fov_arcmin)
+        except (irsa.FetchError, httpx.HTTPError, ValueError, KeyError) as err:
+            # Colour is optional: bake without it and say why.
+            print(f"  ! no colour cube: {err}", flush=True)
+            cube_desc = {"missing": str(err)}
+
         out = out_root / t.id
         out.mkdir(parents=True, exist_ok=True)
+        if cube_arr is not None:
+            (out / "cube.bin").write_bytes(cube_arr.astype("<f4").tobytes())
+            cube_desc["file"] = "cube.bin"
+            cube_desc["shape"] = list(cube_arr.shape)
+        elif (out / "cube.bin").exists():
+            (out / "cube.bin").unlink()
         blobs = [cube.tobytes(), vcube.tobytes()] + [w["image"].astype(np.float32).tobytes() for w in wise_frames]
         payload = b"".join(blobs)
         (out / "frames.bin").write_bytes(payload)
@@ -313,6 +327,8 @@ def bake(target_id: str, client: httpx.Client | None = None, out_root: Path = OU
             "detectors": [{"detector": d, "wl_min": r[0], "wl_max": r[1]} for d, r in frames.DETECTOR_RANGES_UM.items()],
             "epochs": epochs,
             "wise": [{k: v for k, v in w.items() if k != "image"} for w in wise_frames],
+            "cube": cube_desc,
+            "variable": t.variable,
             "layout": layout,
             "provenance": {
                 "label": f"IRSA DR1+QR3 (baked {dt.date.today().isoformat()})",

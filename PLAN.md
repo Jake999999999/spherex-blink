@@ -165,6 +165,19 @@ Owner's order: **M5 colour and M6 validation + accessibility are built next; M7 
 | L4 | All-sky cube tiles follow a fixed key pattern: `dr1/hips5_cube/hips_20261026/Norder5/Dir<10000·⌊npix/10000⌋>/Npix<npix>_cube.fits`, HEALPix order 5 NESTED (D15). So a page can find the tile for any position by computing the HEALPix index, with no search. | VERIFIED for one tile (Npix11391 at Eps Indi B); pattern assumed for the rest, check on two more tiles in M5 |
 | L5 | 2MASS point-source catalogue (`fp_psc`, J/H/Ks) and AllWISE (`allwise_p3as_psd`, W1/W2) answer through Gator (server side). | VERIFIED |
 
+### Architect review (2026-11-14) and what changed
+
+The plan was reviewed before building. Applied:
+- **M5, map spectra in the same units:** sum a 15″-radius aperture on the cube grid times the pixel solid angle → mJy, so map and exposure spectra share an axis.
+- **M5, time-averaging:** each cube channel at a spot was observed on a different date. Map spectra are suppressed for sources that move > 0.25 cube px over the averaging span and for the variable targets (the pole LPV, RW Aur), with a note saying why.
+- **M5, masking:** cube pixels with `NHITS == 0` become NaN. The level-2 flag mask is **not** reused on cube `FLAGS` (bit meanings unchecked; bit 21 SOURCE covers most pixels there too). The reader asserts plain `XTENSION='IMAGE'` and no `ZIMAGE` (tile compression would break byte offsets).
+- **M5, tiles:** found with our own HEALPix `ang2pix` (nested, order 5) on the field's corners and centre (up to 4 tiles at a corner), not SIA. This also tests fact L4 and is the code M7 will port to TypeScript. No new dependency.
+- **M5, colour honesty:** the "brown dwarfs look different" check is done in *physical* mode (one scale, Fν).
+- **M6, photometry:** compare with 2MASS/WISE by synthetic photometry over the band (top-hat over each band's published half-power width, stated as an approximation), within a magnitude window that avoids saturation, and drop stars with a brighter neighbour within 15″.
+- **M6, accessibility:** frame descriptions are announced only after a user action, never every blink frame; the canvas gets `role="img"` and a label. **All** modes are capped at 3 frame changes per second (the 6× speed is removed). Single-letter shortcuts can be switched off in Help and are ignored while typing. The AudioContext is created only on a click. axe-core is run only inside the browser pane as a test, loaded from a CDN, not added to the project — **ask the owner first**.
+- **M7:** the TypeScript port also needs the `WCS-WAVE` `-TAB` lookup. Golden fixtures are generated from Python and checked in tests. The cube release folder (`hips_20261026`) is discovered from the HiPS `properties` file, not hard-coded. HDU offsets are cached per product version. A hosted proxy must allowlist exact hosts and query shapes.
+- **Pipeline nit:** resampled variance used interpolated values; the correct value is Σwᵢ²·varᵢ. Fixed before M5, then re-bake from cache.
+
 ### M5: colour from the 102-channel all-sky cube
 
 What: a third view mode, **Colour**, showing a false-colour image made from three wavelength windows of SPHEREx's all-sky cube, plus a time-averaged spectrum for *any* clicked pixel (not just the baked stars).

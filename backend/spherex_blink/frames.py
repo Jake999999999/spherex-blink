@@ -71,15 +71,38 @@ def resample(
         c = coords[axis]
         c[(c > -1e-3) & (c < 0)] = 0.0
         c[(c > n - 1) & (c < n - 1 + 1e-3)] = n - 1
-    goodf = good.astype(np.float32)
-    img0 = np.where(good, image, 0.0).astype(np.float64)
-    var0 = np.where(good, variance, 0.0).astype(np.float64)
-    out_img = ndimage.map_coordinates(img0, coords, order=1, mode="constant", cval=0.0)
-    out_var = ndimage.map_coordinates(var0, coords, order=1, mode="constant", cval=0.0)
-    out_w = ndimage.map_coordinates(goodf, coords, order=1, mode="constant", cval=0.0)
-    valid = out_w > 0.999
-    out_img = np.where(valid, out_img, np.nan).astype(np.float32)
-    out_var = np.where(valid, out_var, np.nan).astype(np.float32)
+    return bilinear(image, variance, good, coords[0], coords[1])
+
+
+def bilinear(image: np.ndarray, variance: np.ndarray, good: np.ndarray, sy: np.ndarray, sx: np.ndarray):
+    """Bilinear interpolation at source pixel positions (sy, sx).
+
+    value = Σ wᵢ·vᵢ, variance = Σ wᵢ²·varᵢ (the variance of a weighted sum of independent pixels).
+    An output pixel is valid only if every input pixel with non-negligible weight is good and inside.
+    """
+    ny, nx = image.shape
+    x0 = np.floor(sx).astype(np.int64)
+    y0 = np.floor(sy).astype(np.int64)
+    fx = sx - x0
+    fy = sy - y0
+    val = np.zeros(sx.shape, np.float64)
+    var = np.zeros(sx.shape, np.float64)
+    valid = np.isfinite(sx) & np.isfinite(sy)
+    for dy, dx, w in ((0, 0, (1 - fx) * (1 - fy)), (0, 1, fx * (1 - fy)), (1, 0, (1 - fx) * fy), (1, 1, fx * fy)):
+        xi = x0 + dx
+        yi = y0 + dy
+        matters = w > 1e-6
+        inside = (xi >= 0) & (xi < nx) & (yi >= 0) & (yi < ny)
+        xc = np.clip(xi, 0, nx - 1)
+        yc = np.clip(yi, 0, ny - 1)
+        ok = inside & good[yc, xc]
+        valid &= ~matters | ok
+        v = np.where(ok, image[yc, xc], 0.0)
+        s2 = np.where(ok, variance[yc, xc], 0.0)
+        val += np.where(matters, w * v, 0.0)
+        var += np.where(matters, w * w * s2, 0.0)
+    out_img = np.where(valid, val, np.nan).astype(np.float32)
+    out_var = np.where(valid, var, np.nan).astype(np.float32)
     return out_img, out_var, valid
 
 
