@@ -148,17 +148,79 @@ spherex-blink/
 - Guided tour (3 steps, §3).
 - **Accept**: pytest for aperture photometry (recovers synthetic flux within 2 %) and wavelength lookup (matches `WCS-WAVE` on a real cached cutout); T2 spectrum has ≥ 300 points over 0.75–5 µm; T3 light curve spans ≥ 15 months; Barnard motion fit with WISE agrees with Gaia within 10 %; tour runs start to finish in the pane with `?silent`; every tour sentence matches what is on screen.
 
-### M3: any coordinate (live) and the 102-channel cube
-- FastAPI on 127.0.0.1:8091: `/api/targets`, `/api/field?ra&dec&fov` with progress events; "quick look" fetches ≤ 60 exposures (two detectors, all visits; about 1–2 min), more on request; disk cache. If IRSA fails: say so, offer baked targets.
-- Cube window via HTTP Range → wavelength scrubber + 3-handle RGB mixer (time-averaged, 12.88″/px, labelled as such).
-- Auto-scan: top 5 peaks of `|T2 − T1| / sqrt(V1 + V2)` above 5σ, excluding masked pixels and a radius around saturated stars; results are "candidates to look at", not discoveries.
-- **Accept**: pytest with a mocked IRSA; a live smoke test (marked `network`, run by hand) returns frames for T1 in < 3 min; the static build still works with the API off and hides the coordinate box.
+### M3 (superseded by M5–M7 below, 2026-11-14 evening)
+The original M3 (local FastAPI live mode + cube mixer) and M4 (polish) are replaced by the milestones in §6b. Still wanted later: PNG/WebM export with burned-in provenance, embed mode, auto-scan for candidates.
 
-### M4: polish
-- PNG and WebM export with burned-in coordinates, dates, scale bar and provenance; shareable URL; embed mode.
-- Sonification of a spectrum (off under `?silent`).
-- Optional Simulator, watermarked (§4).
-- GitHub Pages deploy (needs a public repo: owner's decision).
+## 6b. Next milestones (planned 2026-11-14 evening)
+
+Owner's order: **M5 colour and M6 validation + accessibility are built next; M7 live mode is planned only; hosting + demo kit (the old "step 1") comes last.**
+
+### Facts checked for this plan (2026-11-14, live requests)
+
+| # | Fact | Status |
+|---|---|---|
+| L1 | IRSA SIA, IRSA TAP, Gator and ESA's Gaia TAP send **no** `Access-Control-Allow-Origin` header: a web page cannot read them directly. | VERIFIED (curl with an `Origin` header) |
+| L2 | The public S3 mirror `https://nasa-irsa-spherex.s3.amazonaws.com/<key>` sends `Access-Control-Allow-Origin: *`, allows `GET`/`HEAD` and the `Range` header (preflight OK), and returns `206 Partial Content`: a web page **can** read byte ranges of any SPHEREx file. | VERIFIED |
+| L3 | Each SIA row's `cloud_access` column gives the S3 key, e.g. `dr1/level2/<week>/<ver>/<det>/level2_…D6_spx_….fits` (65.7 MB for a full exposure). | VERIFIED |
+| L4 | All-sky cube tiles follow a fixed key pattern: `dr1/hips5_cube/hips_20261026/Norder5/Dir<10000·⌊npix/10000⌋>/Npix<npix>_cube.fits`, HEALPix order 5 NESTED (D15). So a page can find the tile for any position by computing the HEALPix index, with no search. | VERIFIED for one tile (Npix11391 at Eps Indi B); pattern assumed for the rest, check on two more tiles in M5 |
+| L5 | 2MASS point-source catalogue (`fp_psc`, J/H/Ks) and AllWISE (`allwise_p3as_psd`, W1/W2) answer through Gator (server side). | VERIFIED |
+
+### M5: colour from the 102-channel all-sky cube
+
+What: a third view mode, **Colour**, showing a false-colour image made from three wavelength windows of SPHEREx's all-sky cube, plus a time-averaged spectrum for *any* clicked pixel (not just the baked stars).
+
+Pipeline (`backend/spherex_blink/cube.py`, called by `bake`):
+- Find the tile(s) covering the field with an SIA search on `spherex_dr1_cube` (radius = field half-diagonal; a field near a tile edge needs two tiles).
+- Read the FITS header with a Range request (blocks of 2880 bytes until `END`), locate the `IMAGE` HDU (512×512×102, float32), `SPECTRAL_CHANNELS` (wavelength, bandwidth, blank flags) and, if 3-D, `FLAGS`.
+- Work out the pixel window covering the field through the tile's `RA---HPX` WCS (astropy supports HPX), then read only those rows for each of the 102 channels (one Range request per channel, 4 at a time, ≈80 KB each). Cache on disk.
+- Resample each channel onto a north-up TAN grid at **12.3″/px** (2× the main grid, close to the cube's native 12.88″; upsampling further would only pretend). Blank channels (next to the dichroic) stay NaN.
+- Write `cube.bin` (float32 `[102, h, w]`, ≈0.5–0.7 MB per target) and the channel table into `meta.json` (`cube` block: grid WCS, wavelengths, bandwidths, blank list, tile URL(s), date span of the average). Budget after M5: ≤ 8 MB total.
+
+App:
+- View mode **Colour** next to Blink/Difference. The wavelength bar becomes continuous (0.75–5.0 µm) with three draggable windows (R, G, B), each the mean of the cube channels inside it.
+- Presets, each with one sentence on what it shows: *Near-IR "true" order* (B 1.0–1.3, G 1.6–2.2, R 3.5–4.4 µm); *Methane* (on vs off the 3.3 µm band: cool brown dwarfs stand out); *Water* (1.4 vs 1.25/1.6 µm); *Hot dust* (long-wavelength excess).
+- Each colour is stretched on its own (asinh, percentiles) so faint channels aren't swamped; a "balanced / physical" toggle keeps one scale for all three.
+- Click anywhere in Colour mode → the spectrum panel gets a "map spectrum" series: 102 channel values at that pixel, drawn as a line, labelled "all-sky map, average of all visits to May 2026, 12.9″ pixels". On baked stars it is drawn together with the per-exposure dots.
+- Composite computed on the CPU (≤ 50×50 px, cheap) and uploaded as three float layers; same smoothing/raw-pixel switch.
+
+Accept:
+- pytest: header/offset parser and window reader against a synthetic FITS cube served through a mocked HTTP transport that honours `Range`; HPX→TAN resampling puts a synthetic star within 0.1 px (of the 12.3″ grid); blank channels stay NaN; `cube.bin` size within budget.
+- bun test: composite maths (window means skip NaN; per-channel stretch), preset definitions inside detector coverage, map-spectrum extraction.
+- Real data: the Eps Indi B map spectrum shows the same water/methane dips as its per-exposure spectrum (the two are independent products, so this doubles as a validation check; record the agreement in M6); with the *Methane* preset the brown dwarfs are visibly a different colour from the field stars.
+- Browser: Colour mode on all five targets, presets, dragging windows, click-for-spectrum; no console errors; phone layout.
+
+### M6: validation and accessibility
+
+Validation (`backend/spherex_blink/validate.py` → `docs/VALIDATION.md` + a `validation` block in each `meta.json`):
+- **Brightness vs 2MASS and AllWISE.** For unflagged field stars (G < 15, not known variables), our flux near 1.235/1.662/2.159 µm (2MASS J/H/Ks) and 3.35/4.60 µm (W1/W2): median of points within the catalogue band's width. Convert catalogue magnitudes to mJy (zero points: J 1594, H 1024, Ks 666.7, W1 309.54, W2 171.79 Jy). Report per band the median ratio ours/catalogue (that ratio *is* our missing aperture correction) and the robust scatter (repeatability). Expected: ratio < 1 and steady; scatter ≲ 10%.
+- **Positions vs Gaia.** Centroids of field stars in the stacked frames against Gaia positions for each visit's date: RMS offset in arcsec (expect < 1″, i.e. < 0.2 px).
+- **Motion vs Gaia** for Barnard's Star and Eps Indi B (with the 2010 frame).
+- **Repeatability:** visit-to-visit scatter of constant field stars.
+- **Map vs exposure spectra** (from M5).
+- In the app: a "How accurate is this?" section per target with these numbers and a link to `docs/VALIDATION.md`. Numbers are computed by the pipeline, never typed in by hand.
+
+Accessibility:
+- **Sonification:** a "Listen" button in the spectrum panel sweeps the spectrum from short to long wavelength in about 3 s (pitch rises with brightness, 220–880 Hz, logarithmic; absorption dips are heard as drops). The light curve plays the same way over time. Web Audio, no files. Never plays under `?silent`; stops on Esc.
+- **Words for every picture:** an auto-generated one-paragraph summary under each spectrum ("brightest near 4.0 µm; deepest dips near 1.4 and 3.3 µm, where water and methane absorb") and a live text description of the current frame for screen readers.
+- **Flashing:** blinking WISE↔SPHEREx is a large brightness flip. Cap at 3 flips per second (WCAG 2.3.1) and, with `prefers-reduced-motion`, don't autoplay.
+- **Keyboard:** every control reachable; `N` / `Shift+N` steps through the baked stars and opens their spectrum; visible focus everywhere.
+- **Colour and contrast:** run the dataviz palette validator on the diverging and colour-mode palettes; raise small grey text to ≥ 4.5:1 contrast.
+- Accept: axe-core run in the browser pane reports no serious or critical issues; sonification mapping unit-tested; the whole tour done keyboard-only; validation numbers present for all five targets and in `docs/VALIDATION.md`.
+
+### M7: any coordinate, live (plan only; not being built yet)
+
+Goal: type any RA/Dec (or a star name) and get the same blink/difference/colour views without a pre-bake.
+
+Design, from facts L1–L4:
+- **Tier A, colour at any coordinate, no server.** In the browser: compute the HEALPix order-5 tile (a short JS `ang2pix_nest`), Range-read the header and the needed rows of each channel from S3, project through `RA---HPX`, show Colour mode and map spectra. Port of the M5 Python reader; ≈ 102 small requests, a few seconds. Works on GitHub Pages as is.
+- **Tier B, blink at any coordinate, needs a search proxy.** The exposure list (SIA) and Gaia have no CORS, so a tiny proxy forwards *only those metadata queries* and adds CORS: a Cloudflare Worker or similar (free tier), or the local FastAPI for development. The image data itself comes from S3 straight to the browser: for each exposure, Range-read the rows around the target in `IMAGE`, `FLAGS`, `VARIANCE` and `ZODI` (≈ 4 × 40 rows × 8160 bytes ≈ 1.3 MB) plus the `WCS-WAVE` table, instead of IRSA's 4 MB cutouts. Processing (zodi subtraction, flag masking, TAN-SIP sky coordinates, resampling, inverse-variance stacking) runs in a Web Worker as a TypeScript port of `frames.py`.
+- **Quick look first:** 2 detectors × all visits (≈ 60 exposures ≈ 80 MB) with a progress bar, then more on request. Results cached in the browser (IndexedDB). Name lookup via the proxy (Sesame/SIMBAD).
+- **Correctness:** golden tests: the Python pipeline writes reference outputs for cached cutouts; the TypeScript port must match within 1% (fluxes) and 0.02 px (positions). TAN-SIP is the risky part.
+- **Risks:** IRSA metadata outages (we saw hours of 502s) → keep the baked targets as the dependable path and say clearly when live search is down; S3 egress/rate limits; deep-field positions with 17,000 exposures (sample, as the bake does); a hosted proxy is a service the owner must create and own (account, keys): **owner decision before Tier B**.
+- **Estimate:** Tier A ≈ 1 day; Tier B ≈ 3–4 days including the TS port and golden tests.
+
+### Last: hosting and demo kit (old "step 1")
+GitHub Pages from the owner's public repo, a 30-second video following the tour, slides, the challenge-statement mapping, and target swaps (RW Aur → Teegarden's Star; keep WISE 0855 as the "why it can't be seen" lesson).
 
 ### Cut from the spec
 - Bloom / "Observatory View": makes science images look better than the data.

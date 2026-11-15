@@ -51,13 +51,14 @@ def get_with_retry(
     base_delay: float = 3.0,
     sleep: Callable[[float], None] = time.sleep,
     max_delay: float = 60.0,
+    headers: dict | None = None,
 ) -> bytes:
-    """GET with exponential backoff on 5xx/429 and network errors."""
+    """GET with exponential backoff on 5xx/429 and network errors. 206 counts as success (Range)."""
     last: str = ""
     for attempt in range(tries):
         try:
-            r = client.get(url, params=params)
-            if r.status_code == 200:
+            r = client.get(url, params=params, headers=headers)
+            if r.status_code in (200, 206):
                 return r.content
             last = f"HTTP {r.status_code}"
             if r.status_code not in RETRY_STATUS:
@@ -67,6 +68,16 @@ def get_with_retry(
         if attempt < tries - 1:
             sleep(min(max_delay, base_delay * (2**attempt)) * (0.75 + 0.5 * random.random()))
     raise FetchError(f"{url} failed after {tries} tries ({last})")
+
+
+def get_with_retry_headers(client: httpx.Client, url: str, headers: dict, **kw) -> bytes:
+    return get_with_retry(client, url, headers=headers, **kw)
+
+
+def content_length(client: httpx.Client, url: str) -> int:
+    r = client.head(url)
+    r.raise_for_status()
+    return int(r.headers["content-length"])
 
 
 # ---------------------------------------------------------------- SIA
