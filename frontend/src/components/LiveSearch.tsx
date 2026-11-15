@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Search, X } from "lucide-react";
-import { looksLikeCoords, parseCoords } from "../lib/coords";
+import { Loader2, Search, Shuffle, X } from "lucide-react";
+import { looksLikeCoords, parseCoords, pickRandomSpot } from "../lib/coords";
 import { cancelJob, claimAutostart, FORCE_BROWSER, jobStatus, liveAvailable, resolveName, startField, type JobView } from "../lib/live";
 import { formatDec, formatRa } from "../lib/wcs";
 import { BrowserFetch } from "./BrowserFetch";
@@ -165,6 +165,16 @@ export function LiveSearch({ onReady, autostart, sourceMode = "auto", serverOnli
             disabled={busy || available === null}
           />
         </label>
+        <button
+          type="button"
+          disabled={busy || available === null}
+          onClick={() => setText(pickRandomSpot(text).coords)}
+          title="Fill random working sky coordinates"
+          aria-label="Random sky coordinates"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/15 bg-slate-950/60 text-slate-300 hover:border-sky-400/50 hover:text-sky-200 disabled:opacity-40"
+        >
+          <Shuffle size={14} />
+        </button>
         <label className="flex items-center gap-2 text-xs text-slate-300" title="Bigger fields catch faster movers but take longer to fetch">
           Field
           <input type="range" min={2} max={15} step={1} value={fov} onChange={(e) => setFov(Number(e.target.value))} disabled={busy} className="w-24" />

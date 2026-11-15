@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { ExternalLink, FileUp, Loader2, Search, X } from "lucide-react";
-import { looksLikeCoords, parseCoords } from "../lib/coords";
+import { ExternalLink, FileUp, Loader2, Search, Shuffle, X } from "lucide-react";
+import { looksLikeCoords, parseCoords, pickRandomSpot } from "../lib/coords";
 import { formatDec, formatRa } from "../lib/wcs";
 import { BUNDLE_FILES, estimateBytesPerExposure, putMemBundle, readBundleFiles, type BundleFiles, type Progress } from "../lib/browser/fieldbuild";
 import { irsaSearchUrl, MAX_LIST_BYTES, parseExposureList, sampleByVisit, type ExposureRef } from "../lib/browser/exposures";
@@ -224,6 +224,16 @@ export function BrowserFetch({ onReady, autostart }: Props) {
             disabled={busy}
           />
         </label>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => setText(pickRandomSpot(text).coords)}
+          title="Fill random working sky coordinates"
+          aria-label="Random sky coordinates"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/15 bg-slate-950/60 text-slate-300 hover:border-sky-400/50 hover:text-sky-200 disabled:opacity-40"
+        >
+          <Shuffle size={14} />
+        </button>
         <label className="flex items-center gap-2 text-xs text-slate-300" title="In the browser, bigger fields mean bigger downloads">
           Field
           <input type="range" min={2} max={10} step={1} value={fov} onChange={(e) => setFov(Number(e.target.value))} disabled={busy} className="w-24" />

@@ -45,3 +45,27 @@ function check(ra: number, dec: number): SkyPos | null {
 
 /** Does the text look like coordinates (rather than a name to look up)? */
 export const looksLikeCoords = (s: string) => /^[\s\d+\-.:hHmMsSdD°′″'",;]+$/.test(s.trim());
+
+export const CURATED_SPOTS: { name: string; coords: string }[] = [
+  { name: "Orion Bar (PAH front)", coords: "83.8580 -5.4170" },
+  { name: "M82 (Starburst galaxy)", coords: "148.9685 69.6797" },
+  { name: "NGC 1068 (Active galaxy)", coords: "40.6696 -0.0133" },
+  { name: "NGC 1333 (Protostars & ices)", coords: "52.2950 31.3600" },
+  { name: "Ring Nebula (M57)", coords: "283.3962 33.0292" },
+  { name: "Crab Nebula (M1)", coords: "83.6331 22.0145" },
+  { name: "NGC 7027 (Planetary nebula)", coords: "316.7575 42.2358" },
+  { name: "Eta Carinae", coords: "161.2650 -59.6844" },
+  { name: "Teegarden's Star", coords: "43.2537 16.8813" },
+  { name: "Luhman 16 (Brown dwarfs)", coords: "162.3149 -53.3184" },
+  { name: "Elias 29 (Water ice)", coords: "246.7892 -24.6219" },
+  { name: "HL Tauri (Protoplanetary disc)", coords: "67.9104 18.2327" },
+  { name: "Cassiopeia A (Supernova remnant)", coords: "350.8500 58.8150" },
+  { name: "NEP Deep Field", coords: "270.0000 66.5607" },
+];
+
+/** Pick a random working coordinate string, avoiding repeating the current one when possible. */
+export function pickRandomSpot(current = ""): { name: string; coords: string } {
+  const pool = CURATED_SPOTS.filter((s) => s.coords !== current.trim());
+  const list = pool.length ? pool : CURATED_SPOTS;
+  return list[Math.floor(Math.random() * list.length)];
+}
