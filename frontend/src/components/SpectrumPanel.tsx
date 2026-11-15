@@ -179,7 +179,7 @@ export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, 
   };
 
   return (
-    <section className="panel flex h-full flex-col rounded-t p-3 text-sm" aria-label="Spectrum and light curve">
+    <section className="panel flex h-full flex-col overflow-y-auto rounded-t p-3 text-sm" aria-label="Spectrum and light curve">
       <header className="mb-2 flex flex-wrap items-center gap-2">
         <div className="min-w-0 flex-1">
           <h2 className="truncate font-semibold text-slate-100">{source?.name ?? title}</h2>
@@ -245,7 +245,7 @@ export function SpectrumPanel({ spectra, source, title, map, epochs, detectors, 
         </p>
       )}
       {shownTab === "spectrum" && map?.caveat && <p className="mb-1 text-[11px] text-slate-400">Map spectrum hidden: {map.caveat}</p>}
-      <div className="min-h-0 flex-1">
+      <div className="min-h-[190px] flex-1">
         {pts.length === 0 && !map?.spectrum ? (
           <p className="p-4 text-xs text-slate-400">No usable measurements here.</p>
         ) : shownTab === "spectrum" ? (
@@ -476,10 +476,11 @@ function SpectrumChart({
           .concat(map ? [{ color: MAP_COLOUR, label: map.label }] : [])}
         extra={pts.length ? (converted.some((d) => d.upperLimit) ? "hollow = flagged · ▼ = 3σ limit" : "hollow = flagged") : undefined}
       />
-      <div ref={ref} className="relative min-h-0 flex-1" onPointerLeave={() => setHover(null)}>
+      <div ref={ref} className="relative min-h-0 flex-1 overflow-hidden" onPointerLeave={() => setHover(null)}>
         <svg
           width={w}
           height={h}
+          className="absolute inset-0 block"
           role="img"
           aria-label="Flux against wavelength for each SPHEREx exposure"
           onPointerMove={(ev) => {
@@ -617,10 +618,11 @@ function LightCurveChart({ pts, det }: { pts: Point[]; det: { detector: number; 
         <span className="mono">{det.wl_max} µm</span>
         <span className="ml-auto">hollow = flagged</span>
       </div>
-      <div ref={ref} className="relative min-h-0 flex-1" onPointerLeave={() => setHover(null)}>
+      <div ref={ref} className="relative min-h-0 flex-1 overflow-hidden" onPointerLeave={() => setHover(null)}>
         <svg
           width={w}
           height={h}
+          className="absolute inset-0 block"
           role="img"
           aria-label={`Flux against date on detector ${det.detector}`}
           onPointerMove={(ev) => {
