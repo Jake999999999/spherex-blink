@@ -53,11 +53,16 @@ vec4 crWeights(float t) {
   return vec4(-0.5 * t3 + t2 - 0.5 * t, 1.5 * t3 - 2.5 * t2 + 1.0, -1.5 * t3 + 2.0 * t2 + 0.5 * t, 0.5 * t3 - 0.5 * t2);
 }
 
+vec4 bsWeights(float t) {
+  float t2 = t * t, t3 = t2 * t;
+  return vec4((1.0 - t) * (1.0 - t) * (1.0 - t), 3.0 * t3 - 6.0 * t2 + 4.0, -3.0 * t3 + 3.0 * t2 + 3.0 * t + 1.0, t3) / 6.0;
+}
+
 // Display interpolation only (the measurements always use raw pixels). Catmull-Rom bicubic, with two
 // guards that matter on coarse data: the result is clamped to the range of the four nearest pixels
 // (no dark rings or coloured fringes around bright stars), and missing pixels are skipped with the
 // remaining weights renormalised (no hard squares next to gaps). A missing pixel stays missing.
-float smoothSample(sampler2DArray tex, int layer, vec2 uv) {
+float smoothSample(sampler2DArray tex, int layer, vec2 uv, bool bspline) {
   ivec2 s = textureSize(tex, 0).xy;
   vec2 sf = vec2(s);
   ivec2 nearest = clamp(ivec2(floor(uv * sf)), ivec2(0), s - 1);
@@ -66,8 +71,8 @@ float smoothSample(sampler2DArray tex, int layer, vec2 uv) {
   vec2 p = uv * sf - 0.5;
   ivec2 i = ivec2(floor(p));
   vec2 f = p - floor(p);
-  vec4 wx = crWeights(f.x);
-  vec4 wy = crWeights(f.y);
+  vec4 wx = bspline ? bsWeights(f.x) : crWeights(f.x);
+  vec4 wy = bspline ? bsWeights(f.y) : crWeights(f.y);
   float acc = 0.0;
   float wsum = 0.0;
   float lo = 1e30;
@@ -87,11 +92,13 @@ float smoothSample(sampler2DArray tex, int layer, vec2 uv) {
     }
   }
   if (wsum < 0.5 || hi < lo) return vn;
-  return clamp(acc / wsum, lo, hi);
+  // B-spline weights are all positive, so it cannot overshoot and needs no clamp (a clamp makes flat plateaus)
+  return bspline ? acc / wsum : clamp(acc / wsum, lo, hi);
 }
 
-float sampleLayer(int layer, vec2 uv) { return smoothSample(uFrames, layer, uv); }
-float sampleColour(int layer, vec2 uv) { return smoothSample(uColour, layer, uv); }
+float sampleLayer(int layer, vec2 uv) { return smoothSample(uFrames, layer, uv, false); }
+// The colour grid is coarse (12.3" pixels): a cubic B-spline gives smooth, round stars there.
+float sampleColour(int layer, vec2 uv) { return smoothSample(uColour, layer, uv, true); }
 
 void main() {
   vec3 col;

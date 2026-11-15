@@ -202,7 +202,7 @@ export default function App() {
   const colourView = useMemo(() => {
     if (!cube || state.mode !== "colour") return null;
     const raw = [windowMean(cube, mix.r), windowMean(cube, mix.g), windowMean(cube, mix.b)] as [Float32Array, Float32Array, Float32Array];
-    const lv = colourLevels(raw, 50, 99.7, "physical");
+    const lv = colourLevels(raw, 50, 99.0, "physical");
     const blown = blowOutSaturated(raw, cube.n, lv.white);
     return { planes: { planes: blown.planes, n: cube.n }, levels: lv, blownOut: blown.count };
   }, [cube, mix, state.mode]);
