@@ -131,7 +131,7 @@ export function BrowserFetch({ onReady, autostart }: Props) {
     if (mb > MAX_MB) return setErr(`That would download about ${mb.toFixed(0)} MB; the limit here is ${MAX_MB} MB. Use a smaller field or the quick look.`);
     if (mb > CONFIRM_MB && !window.confirm(`This downloads about ${mb.toFixed(0)} MB from NASA's S3 copy (${sample.refs.length} exposures). Go ahead?`)) return;
     void run(
-      { id: field.id, name: field.name, ra: field.ra, dec: field.dec, fov: field.fov, refs: sample.refs.map((ref) => ({ ref, visit: sample.visitOf.get(ref.key)! })), withCube: !field.cube, reuseCube: field.cube },
+      { id: field.id, name: field.name, ra: field.ra, dec: field.dec, fov: field.fov, refs: sample.refs.map((ref) => ({ ref, visit: sample.visitOf.get(ref.key) ?? -1 })), withCube: !field.cube, reuseCube: field.cube },
       field,
       `Fetching ${sample.refs.length} exposures from NASA's S3 copy…`,
     );
@@ -262,7 +262,7 @@ export function BrowserFetch({ onReady, autostart }: Props) {
             <div className="mt-2 flex flex-wrap items-center gap-3">
               <span>
                 {list.refs.length} exposures in the {list.format === "text" ? "list" : list.format}
-                {list.skipped ? ` (${list.skipped} rows skipped)` : ""}; {sample.visits} visits. {allData ? "All data" : "Quick look"}: {sample.refs.length} exposures, about{" "}
+                {list.skipped ? ` (${list.skipped} rows skipped)` : ""}; {sample.visits ? `${sample.visits} visits` : "no times in the list, so each file's header is read first to find its visit"}. {allData ? "All data" : "Quick look"}: {sample.refs.length} exposures, about{" "}
                 <b>{mb.toFixed(0)} MB</b>.
               </span>
               <label className="flex items-center gap-1">

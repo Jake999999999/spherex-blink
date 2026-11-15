@@ -8,7 +8,12 @@ export interface BuildHandle {
 
 export function startBrowserBuild(req: FieldRequest, onProgress: (p: Progress) => void): BuildHandle {
   const w = new Worker(new URL("./fieldworker.ts", import.meta.url), { type: "module" });
+  let stop: () => void = () => {};
   const done = new Promise<BundleFiles>((resolve, reject) => {
+    stop = () => {
+      w.terminate(); // CPU work in the worker can't be interrupted any other way
+      reject(new Error("cancelled"));
+    };
     w.onmessage = (ev) => {
       const m = ev.data;
       if (m.type === "progress") onProgress(m.p);
@@ -25,7 +30,7 @@ export function startBrowserBuild(req: FieldRequest, onProgress: (p: Progress) =
   });
   w.postMessage({ type: "start", req });
   return {
-    cancel: () => w.postMessage({ type: "cancel" }),
+    cancel: () => stop(),
     done,
   };
 }

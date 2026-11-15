@@ -217,4 +217,11 @@ describe("exposure lists", () => {
     expect(s.refs).toHaveLength(4 * 6 * 3);
     expect(new Set(s.refs.map((r) => s.visitOf.get(r.key))).size).toBe(4);
   });
+  test("links without times are kept (capped) for the builder to date from headers", () => {
+    const refs = Array.from({ length: 300 }, (_, k) => ({ key: `u${k}`, detector: (k % 6) + 1, mjd: null, obsId: "", collection: "spherex_dr1" }));
+    const s = sampleByVisit(refs, 3, 4);
+    expect(s.visits).toBe(0);
+    expect(s.refs).toHaveLength(72);
+    expect(s.refs.every((r) => !s.visitOf.has(r.key))).toBe(true);
+  });
 });

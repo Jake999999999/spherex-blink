@@ -178,6 +178,11 @@ export async function buildField(req: FieldRequest, onProgress: (p: Progress) =>
             zodiH && it.url.startsWith("file:") ? readImageWindow(src, zodiH, wx0, wx1, wy0, wy1, 0, signal) : Promise.resolve(null),
           ]);
           const W = img.nx, H = img.ny;
+          const dims = (hd: Hdu) => [num(hd.header, hd.header.get("ZIMAGE") === true ? "ZNAXIS1" : "NAXIS1"), num(hd.header, hd.header.get("ZIMAGE") === true ? "ZNAXIS2" : "NAXIS2")].join("x");
+          for (const [nm, w] of [["VARIANCE", vari], ["FLAGS", flags], ["ZODI", zodi]] as const) {
+            if (!w) continue;
+            if (dims(findHdu(hdus, nm)!) !== `${nx}x${ny}` || w.nx !== W || w.ny !== H) throw new FitsError(`${nm} is not the same size as IMAGE`);
+          }
           const sci = new Float64Array(W * H);
           const good = new Uint8Array(W * H);
           const bad = new Float64Array(W * H);
@@ -255,7 +260,8 @@ export async function buildField(req: FieldRequest, onProgress: (p: Progress) =>
   const epochs: Epoch[] = [];
   const flagSummary: Record<string, number>[][] = [];
   keep.forEach((e, ei) => {
-    const all = cells.slice(e * 6, e * 6 + 6).flatMap((c) => c.mjds);
+    // dates from the detectors actually shown (cells with enough exposures)
+    const all = cells.slice(e * 6, e * 6 + 6).filter((c) => c.n >= MIN_PER_CELL).flatMap((c) => c.mjds);
     const bands: BandInfo[] = [];
     const row: Record<string, number>[] = [];
     for (let d = 1; d <= 6; d++) {
@@ -346,7 +352,7 @@ export const MEM_PREFIX = "mem:";
 
 export function putMemBundle(id: string, files: BundleFiles) {
   store.set(id, files);
-  if (store.size > 6) store.delete(store.keys().next().value!); // keep memory bounded
+  if (store.size > 3) store.delete(store.keys().next().value!); // keep memory bounded
 }
 
 /** A fetch() for "mem:<id>/<file>" that serves the in-memory files (404 for anything else). */

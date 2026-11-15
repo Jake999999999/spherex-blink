@@ -46,7 +46,15 @@ export function parseExposureList(text: string): { refs: ExposureRef[]; format: 
     const names = [...text.matchAll(/<FIELD\b[^>]*\bname="([^"]+)"/g)].map((m) => m[1]);
     const col = (n: string) => names.indexOf(n);
     const [ci, ct0, ct1, co, cs, cc] = ["access_url", "t_min", "t_max", "obs_id", "dataproduct_subtype", "cloud_access"].map(col);
-    for (const tr of text.matchAll(/<TR\b[^>]*>([\s\S]*?)<\/TR>/g)) {
+    // linear scan for rows (a lazy regex over a malformed 20 MB file can take quadratic time)
+    const rows: string[] = [];
+    for (let at = text.indexOf("<TR"); at >= 0; ) {
+      const end = text.indexOf("</TR>", at);
+      if (end < 0) break;
+      rows.push(text.slice(at, end));
+      at = text.indexOf("<TR", end);
+    }
+    for (const tr of rows.map((r) => [r, r.slice(r.indexOf(">") + 1)])) {
       const tds = [...tr[1].matchAll(/<TD\b[^>]*>([\s\S]*?)<\/TD>|<TD\b[^>]*\/>/g)].map((m) => decodeXml(m[1] ?? "").trim());
       const where = `${tds[cc] ?? ""} ${tds[ci] ?? ""}`;
       const k = [...where.matchAll(L2_RE)][0]?.[1];
@@ -107,6 +115,9 @@ export function sampleByVisit(all: ExposureRef[], perCell: number, visitsMax: nu
     }
   });
   refs.sort((a, b) => a.mjd! - b.mjd! || a.detector - b.detector);
+  // links without times (pasted URLs): kept, capped; the builder reads their headers to find visits
+  const untimed = all.filter((r) => r.mjd === null && r.detector >= 1);
+  refs.push(...spread(untimed.length, perCell * visitsMax * 6).map((i) => untimed[i]));
   return { refs, visitOf, visits: groups.length };
 }
 

@@ -235,7 +235,7 @@ export async function readImageWindow(
         default:
           throw new FitsError(`BITPIX ${bitpix} not supported`);
       }
-      if (bitpix > 0 && typeof blank === "number" && v === blank) v = NaN;
+      if (bitpix > 0 && typeof blank === "number" && (unsigned32 ? dv.getInt32(o, false) : v) === blank) v = NaN;
       out[r * w + c] = v * bscale + bzero;
     }
   }

@@ -32,6 +32,7 @@ export async function buildCube(
   let nchan = 0;
   const used: string[] = [];
   let release = "";
+  const skipped: number[] = [];
   const span = [Infinity, -Infinity];
   let done = 0;
   for (const npix of tiles) {
@@ -40,13 +41,16 @@ export async function buildCube(
     for (const r of releases.slice(0, 3)) {
       try {
         src = await s3Source(tileKey(npix, r), ctx.limiter, ctx.meter, ctx.signal);
-        release = release || r;
+        if (!release.split(", ").includes(r)) release = release ? `${release}, ${r}` : r;
         break;
       } catch (e) {
-        if ((e as Error).name === "AbortError") throw e;
+        if ((e as Error).name === "AbortError" || !/HTTP (403|404)/.test((e as Error).message)) throw e;
       }
     }
-    if (!src) continue;
+    if (!src) {
+      skipped.push(npix);
+      continue;
+    }
     const hdus = await walkHdus(src, ctx.signal);
     const im = findHdu(hdus, "IMAGE");
     if (!im) throw new FitsError("map tile has no IMAGE");
@@ -117,7 +121,7 @@ export async function buildCube(
     units: "MJy/sr",
     channels: { wavelength: r5(chans.WAVELENGTH) ?? [], wl_min: r5(chans.WL_MIN), wl_max: r5(chans.WL_MAX), bandwidth: r5(chans.BANDWIDTH), detector: chans.DETECTOR ?? null },
     blank,
-    note: "SPHEREx all-sky spectral map, read in your browser from NASA's public S3 copy: each channel is the average of every visit up to the release, so different channels at one spot come from different dates.",
+    note: (skipped.length ? `Map tile(s) ${skipped.join(", ")} are not in the bucket yet, so part of the field may be empty. ` : "") + "SPHEREx all-sky spectral map, read in your browser from NASA's public S3 copy: each channel is the average of every visit up to the release, so different channels at one spot come from different dates.",
     file: "cube.bin",
     shape: [nchan, n, n],
   };
