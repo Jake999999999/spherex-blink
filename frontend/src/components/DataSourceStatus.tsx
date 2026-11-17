@@ -15,9 +15,17 @@ interface Props {
   onLearnMore?: () => void;
 }
 
+// Only endpoints that allow browser requests (CORS) are probed from a web page: for the others a failed
+// request says nothing about whether the service is up, so they are listed as "can't check" instead.
+// Checked 2026-11-16: S3, the HiPS mirrors and Sesame at CfA send Access-Control-Allow-Origin; IRSA and the
+// Gaia TAP servers (ESA, ARI) answer but don't.
+const NOT_CHECKABLE: SourceHealth[] = [
+  { id: "irsa_sia", label: "IRSA SIA (SPHEREx)", state: "cors", detail: "Can't be checked from a web page (no CORS). Not needed for the built-in targets or the colour map." },
+  { id: "esa_gaia", label: "Gaia DR3 (TAP)", state: "cors", detail: "Can't be checked from a web page (no CORS). Used only by the local server." },
+];
+
 const BROWSER_CHECKS: { id: string; label: string; urls: () => string[] }[] = [
   { id: "aws_s3", label: "AWS S3 (SPHEREx)", urls: () => ["https://nasa-irsa-spherex.s3.amazonaws.com/?list-type=2&max-keys=1"] },
-  { id: "esa_gaia", label: "Gaia DR3 (TAP)", urls: () => ["https://gea.esac.esa.int/tap-server/tap/availability", "https://gaia.ari.uni-heidelberg.de/tap/availability"] },
   { id: "vizier_tap", label: "VizieR TAP (Mirror)", urls: () => ["https://tapvizier.cds.unistra.fr/TAPVizieR/tap/availability"] },
   {
     id: "aladin_hips",
@@ -31,8 +39,8 @@ const BROWSER_CHECKS: { id: string; label: string; urls: () => string[] }[] = [
     id: "cds_sesame",
     label: "CDS Sesame (Names)",
     urls: () => [
-      "https://cdsweb.u-strasbg.fr/cgi-bin/nph-sesame/-oI/A?Vega",
       "https://vizier.cfa.harvard.edu/viz-bin/nph-sesame/-oI/SNV?Vega",
+      "https://cds.unistra.fr/cgi-bin/nph-sesame/-oI/SNV?Vega",
       "https://vizier.idia.ac.za/viz-bin/nph-sesame/-oI/SNV?Vega",
     ],
   },
@@ -96,13 +104,7 @@ export function DataSourceStatus({ serverOnline, onUpstream502, onLearnMore }: P
           };
         }),
       );
-      results.unshift({
-        id: "irsa_sia",
-        label: "IRSA SIA (SPHEREx)",
-        state: "cors",
-        detail: "No browser CORS (use local server or paste link)",
-      });
-      setItems(results);
+      setItems([...NOT_CHECKABLE, ...results]);
     } finally {
       setBusy(false);
     }
@@ -115,6 +117,9 @@ export function DataSourceStatus({ serverOnline, onUpstream502, onLearnMore }: P
   const upCount = items.filter((i) => i.state === "up").length;
   const downCount = items.filter((i) => i.state === "down").length;
   const corsCount = items.filter((i) => i.state === "cors").length;
+  // IRSA's search, as measured by the local server (null when it can't be measured, i.e. in the browser)
+  const sia = items.find((i) => i.id === "irsa_sia");
+  const siaDown = sia?.state === "down";
 
   return (
     <div className="relative inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.03] px-2.5 py-1 text-xs text-slate-300">
@@ -142,7 +147,7 @@ export function DataSourceStatus({ serverOnline, onUpstream502, onLearnMore }: P
                   {downCount} down
                 </span>
               )}
-              {corsCount > 0 && <span className="text-slate-400">· {corsCount} CORS</span>}
+              {corsCount > 0 && <span className="text-slate-400">· {corsCount} can&apos;t check</span>}
             </>
           )}
         </span>
@@ -159,15 +164,30 @@ export function DataSourceStatus({ serverOnline, onUpstream502, onLearnMore }: P
       </button>
       {expanded && (
         <div className="panel absolute right-0 top-full z-40 mt-1.5 flex w-[min(42rem,calc(100vw-2rem))] flex-col gap-3 p-3 text-[11px] shadow-xl sm:flex-row sm:items-start">
-          <div className="shrink-0 rounded-md border border-amber-400/30 bg-amber-500/10 p-2.5 text-amber-100 sm:w-64">
-            <div className="flex items-start gap-1.5 font-semibold text-amber-200">
-              <TriangleAlert size={13} className="mt-0.5 shrink-0" />
-              <span>Blinking new coordinates is limited</span>
+          <div
+            className={`shrink-0 rounded-md border p-2.5 sm:w-64 ${siaDown ? "border-amber-400/30 bg-amber-500/10 text-amber-100" : "border-white/10 bg-white/[0.03] text-slate-200"}`}
+          >
+            <div className={`flex items-start gap-1.5 font-semibold ${siaDown ? "text-amber-200" : "text-slate-100"}`}>
+              {siaDown && <TriangleAlert size={13} className="mt-0.5 shrink-0" />}
+              <span>{siaDown ? "IRSA's search isn't answering" : "Blinking a new spot"}</span>
             </div>
-            <p className="mt-1 leading-relaxed text-amber-100/90">
-              Fetching new exposure lists to blink or diff arbitrary coordinates needs NASA/IPAC&apos;s{" "}
-              <strong>IRSA SIA</strong> spatial service, which lacks browser CORS and is currently timing out upstream.
-              Featured targets &amp; <strong>Colour</strong> mode (AWS S3) still work.
+            <p className="mt-1 leading-relaxed opacity-90">
+              {siaDown ? (
+                <>
+                  The local server just tried NASA/IPAC&apos;s <strong>IRSA SIA</strong> search and got {sia?.detail ?? "no answer"}. New spots can&apos;t be
+                  blinked until it&apos;s back; the built-in targets and the <strong>Colour</strong> map (NASA&apos;s S3 copy) still work.
+                </>
+              ) : serverOnline ? (
+                <>
+                  New spots are found through NASA/IPAC&apos;s <strong>IRSA SIA</strong> search, which the local server queries for you.
+                </>
+              ) : (
+                <>
+                  Finding the exposures of a new spot needs NASA/IPAC&apos;s <strong>IRSA SIA</strong> search, which web pages aren&apos;t allowed to
+                  call or check. The app gives you a link to open it in a new tab; if that page fails, IRSA is busy, so try again later. The built-in
+                  targets and the <strong>Colour</strong> map (NASA&apos;s S3 copy) don&apos;t depend on it.
+                </>
+              )}
             </p>
             {onLearnMore && (
               <button
@@ -204,7 +224,7 @@ export function DataSourceStatus({ serverOnline, onUpstream502, onLearnMore }: P
                 <span>{it.label}</span>
                 {it.detail && it.state !== "checking" && (
                   <span className="mono text-[10px] opacity-80">
-                    {it.state === "cors" ? "(CORS)" : it.detail.split(" · ")[0]}
+                    {it.state === "cors" ? "can't check" : it.detail.split(" · ")[0]}
                   </span>
                 )}
               </span>

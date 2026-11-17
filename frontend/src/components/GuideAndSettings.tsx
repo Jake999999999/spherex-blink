@@ -139,40 +139,41 @@ export function GuideAndSettings({
             </div>
           </div>
           <div className="rounded-lg border border-sky-400/20 bg-sky-500/5 p-3 text-slate-300">
-            <h3 className="mb-1 font-semibold text-white">Generate Coordinates with AI</h3>
+            <h3 className="mb-1 font-semibold text-white">Finding targets</h3>
             <p className="mb-2 leading-relaxed">
-              Need interesting sky targets? Ask any AI assistant for J2000/ICRS coordinates in decimal degrees (<code className="mono">RA Dec</code>) — decimal
-              coordinates bypass name-resolver servers and work directly with the SPHEREx all-sky map:
+              Type an object&apos;s <strong>name</strong> in the search box: it is looked up in SIMBAD, NED and VizieR (CDS Sesame), so the position comes from a
+              catalogue. Coordinates you already trust (from a paper or a catalogue) work too. For ideas, an AI assistant can suggest <strong>names</strong> to
+              try; don&apos;t take coordinates from it, because chatbots can make up positions that look right. Use <strong>List</strong> to step through several names:
             </p>
             <div className="grid gap-2 md:grid-cols-2">
               <div className="rounded border border-white/10 bg-slate-950/60 p-2">
                 <div className="mb-1 flex items-center justify-between text-[11px] font-medium text-sky-200">
-                  <span>Single target prompt</span>
+                  <span>Ideas prompt</span>
                   <button
                     type="button"
-                    onClick={() => navigator.clipboard?.writeText("Give me the J2000 ICRS coordinates of a bright infrared galaxy or protostar with strong PAH or water-ice features in SPHEREx (0.75–5.0 µm), formatted strictly as decimal RA Dec on one line (example: 148.9685 69.6797).")}
+                    onClick={() => navigator.clipboard?.writeText("Suggest 5 well-known objects that SPHEREx (0.75–5.0 µm infrared) should show well, such as bright infrared galaxies or protostars with PAH or water-ice features. Give only their standard catalogue names (as used in SIMBAD), one per line, with a short reason for each.")}
                     className="rounded border border-sky-400/30 px-1.5 py-0.5 text-[10px] hover:bg-sky-400/10"
                   >
                     Copy prompt
                   </button>
                 </div>
                 <p className="mono text-[11px] text-slate-400">
-                  "Give me the J2000 ICRS coordinates of a bright infrared galaxy or protostar with strong PAH or water-ice features in SPHEREx (0.75–5.0 µm), formatted strictly as decimal RA Dec on one line (example: 148.9685 69.6797)."
+                  "Suggest 5 well-known objects that SPHEREx (0.75–5.0 µm infrared) should show well, such as bright infrared galaxies or protostars with PAH or water-ice features. Give only their standard catalogue names (as used in SIMBAD), one per line, with a short reason for each."
                 </p>
               </div>
               <div className="rounded border border-white/10 bg-slate-950/60 p-2">
                 <div className="mb-1 flex items-center justify-between text-[11px] font-medium text-sky-200">
-                  <span>Batch CSV list prompt (for the List button)</span>
+                  <span>List prompt (for the List button)</span>
                   <button
                     type="button"
-                    onClick={() => navigator.clipboard?.writeText("Generate a CSV with header name,ra,dec containing 5 famous brown dwarfs or star-forming regions in decimal degrees (ICRS J2000) ideal for 0.75–5.0 µm infrared spectroscopy.")}
+                    onClick={() => navigator.clipboard?.writeText("List 5 famous brown dwarfs or star-forming regions that are good targets for 0.75–5.0 µm infrared spectroscopy. Output only their standard catalogue names (as used in SIMBAD), one per line, with no coordinates and no other text.")}
                     className="rounded border border-sky-400/30 px-1.5 py-0.5 text-[10px] hover:bg-sky-400/10"
                   >
                     Copy prompt
                   </button>
                 </div>
                 <p className="mono text-[11px] text-slate-400">
-                  "Generate a CSV with header name,ra,dec containing 5 famous brown dwarfs or star-forming regions in decimal degrees (ICRS J2000) ideal for 0.75–5.0 µm infrared spectroscopy."
+                  "List 5 famous brown dwarfs or star-forming regions that are good targets for 0.75–5.0 µm infrared spectroscopy. Output only their standard catalogue names (as used in SIMBAD), one per line, with no coordinates and no other text."
                 </p>
               </div>
             </div>

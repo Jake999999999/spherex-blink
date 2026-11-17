@@ -19,7 +19,7 @@ This document lists all Space Agency Partner data, external astronomical service
 - **Sub-services used:**
   - **Sesame Name Resolver** (`https://cds.unistra.fr/cgi-bin/nph-sesame/-oI/SNV` and mirrors at CfA Harvard and IDIA): Resolves astronomical object names (e.g., `"Barnard's Star"`, `"R Draconis"`, `"Epsilon Indi"`) into ICRS RA/Dec coordinates in live search.
   - **VizieR TAP Service** (`https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync`): Queries 2MASS, AllWISE, and Gaia DR3 (`I/355/gaiadr3`) catalog photometry and astrometry for spectrum reference overlays and sky-context star overlays.
-  - **Aladin Lite v3** (`https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js`): Powers the optional collapsible sky-context finder chart showing AllWISE, 2MASS, and DSS2 all-sky HiPS tiles, the cutout footprint box, and clickable Gaia DR3 sources.
+  - **Aladin Lite v3.8.2** (CDS Strasbourg; the npm package `aladin-lite@3.8.2`, loaded from jsDelivr or unpkg and checked against its SHA-384 before it runs): Powers the optional collapsible sky-context finder chart showing AllWISE, 2MASS, and DSS2 all-sky HiPS tiles, the cutout footprint box, and clickable Gaia DR3 sources.
 
 ### 3. Virtual Observatory SAMP (Simple Application Messaging Protocol)
 - **Link Text:** `IVOA SAMP (Simple Application Messaging Protocol)`

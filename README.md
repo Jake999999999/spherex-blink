@@ -22,7 +22,7 @@ A NASA Space Apps Challenge 2026 entry. Not a NASA product.
 - **Measure motion**: centroid a moving star in each frame and fit its speed, compared with ESA's Gaia catalogue.
 - **How accurate is it?** Checked against 2MASS, WISE and Gaia: brightness within 3% (star-to-star scatter 1–4% with PSF fitting), positions within 0.7″, motions within 1.3% (see [`docs/VALIDATION.md`](docs/VALIDATION.md)).
 - **Listen and read**: every spectrum and light curve can be played as sound and comes with a plain-language summary; single-key shortcuts can be switched off; blinking never exceeds 3 changes per second.
-- **Guided tour & AI coordinate prompts**: two-minute interactive tour for first-time visitors, plus an in-app **Guide** explaining SPHEREx and copyable **AI prompts** for generating valid decimal `RA Dec` coordinates or batch CSV target lists.
+- **Guided tour and Guide**: a two-minute interactive tour for first-time visitors, and an in-app **Guide** explaining SPHEREx, each mode and each data source. Targets are found by name (SIMBAD, NED and VizieR through CDS Sesame) or by coordinates, one at a time or as a list.
 - **Shareable links**: the view (target, mode, wavelength, visits, or the position and field of view) is kept in the URL.
 - **Bring your own data**: drop SPHEREx files downloaded from IRSA, or a whole field someone built with the pipeline, onto the page. See [`docs/GET-THE-DATA.md`](docs/GET-THE-DATA.md).
 - **Contamination flags**: tint the pixels SPHEREx flagged (cosmic rays, ghosts, halos…) and see which flags were set in each visit.
@@ -95,7 +95,7 @@ uv run python -m spherex_blink validate      # accuracy report: docs/VALIDATION.
 
 ## How it works
 
-- [`docs/PITCH-AND-DEMO-GUIDE.md`](docs/PITCH-AND-DEMO-GUIDE.md): **complete feature inventory, slide deck outline, 2–3 minute video script, and judge-winning emphasis points** (ready to feed into another AI for slides/video).
+- [`docs/PITCH-AND-DEMO-GUIDE.md`](docs/PITCH-AND-DEMO-GUIDE.md): feature inventory, slide outline and a 2–3 minute demo script.
 - [`docs/HOW-IT-WORKS.md`](docs/HOW-IT-WORKS.md): the science and the processing, step by step.
 - [`docs/VALIDATION.md`](docs/VALIDATION.md): how accurate the numbers are, computed against 2MASS, WISE and Gaia.
 - [`docs/BUILD-LOG.md`](docs/BUILD-LOG.md): how this was built, what went wrong and what we changed.

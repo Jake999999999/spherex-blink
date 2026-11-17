@@ -40,10 +40,16 @@ declare global {
   }
 }
 
-const ALADIN_SCRIPT_URLS = [
-  "https://cdn.jsdelivr.net/npm/aladin-lite@3/dist/aladin.umd.cjs",
-  "https://unpkg.com/aladin-lite@3/dist/aladin.umd.cjs",
-  "https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js",
+// Aladin Lite, pinned: one exact release, checked against its SHA-384 before it runs, from either of two npm
+// CDNs (same bytes). 3.8.2 ships an ES module (dist/aladin.js, `export default A`); the old floating
+// `aladin-lite@3/dist/aladin.umd.cjs` address no longer exists in current releases (jsDelivr fell back to a
+// 3.4.5 file with a MIME type browsers refuse; unpkg answered 404). To update: change the version, then
+// recompute the hash with `openssl dgst -sha384 -binary aladin.js | openssl base64 -A`. Checked 2026-11-16.
+const ALADIN_VERSION = "3.8.2";
+const ALADIN_SHA384 = "/ymkiSIIZYSHUE2kIcPf4PWW4meM/MIvDZbgCurNjz4k6/Fe21cxLQ9cEn0DlBsZ";
+const ALADIN_MODULE_URLS = [
+  `https://cdn.jsdelivr.net/npm/aladin-lite@${ALADIN_VERSION}/dist/aladin.js`,
+  `https://unpkg.com/aladin-lite@${ALADIN_VERSION}/dist/aladin.js`,
 ];
 const SURVEYS = [
   { id: "https://hips.china-vo.org/m/CDS_P_allWISE_color", label: "AllWISE" },
@@ -53,21 +59,30 @@ const SURVEYS = [
 
 let aladinLoader: Promise<AladinGlobal> | null = null;
 
-function injectScript(src: string): Promise<AladinGlobal> {
-  return new Promise<AladinGlobal>((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = src;
-    script.async = true;
-    script.onload = () => {
-      if (!window.A) {
-        reject(new Error("Aladin Lite did not initialize"));
-        return;
-      }
-      window.A.init.then(() => resolve(window.A!)).catch(reject);
-    };
-    script.onerror = () => reject(new Error(`Failed to load ${src}`));
-    document.head.appendChild(script);
-  });
+async function sha384Base64(buf: ArrayBuffer): Promise<string> {
+  const d = new Uint8Array(await crypto.subtle.digest("SHA-384", buf));
+  let bin = "";
+  for (const b of d) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+
+/** Download the pinned module, refuse it unless the hash matches, then import it from memory. */
+async function importVerified(url: string): Promise<AladinGlobal> {
+  const r = await fetch(url, { mode: "cors", credentials: "omit" });
+  if (!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
+  const buf = await r.arrayBuffer();
+  if ((await sha384Base64(buf)) !== ALADIN_SHA384) throw new Error(`Aladin Lite from ${new URL(url).host} didn't match the pinned ${ALADIN_VERSION} build`);
+  const blobUrl = URL.createObjectURL(new Blob([buf], { type: "text/javascript" }));
+  try {
+    const mod = (await import(/* @vite-ignore */ blobUrl)) as { default?: AladinGlobal };
+    const A = mod.default;
+    if (!A || typeof A.aladin !== "function") throw new Error("Aladin Lite did not initialize");
+    await A.init;
+    window.A = A;
+    return A;
+  } finally {
+    URL.revokeObjectURL(blobUrl);
+  }
 }
 
 function loadAladinLite(): Promise<AladinGlobal> {
@@ -76,15 +91,16 @@ function loadAladinLite(): Promise<AladinGlobal> {
   if (aladinLoader) return aladinLoader;
 
   aladinLoader = (async () => {
-    for (const url of ALADIN_SCRIPT_URLS) {
+    let last: unknown = null;
+    for (const url of ALADIN_MODULE_URLS) {
       try {
-        return await injectScript(url);
-      } catch {
-        // try next CDN mirror
+        return await importVerified(url);
+      } catch (e) {
+        last = e; // try the other CDN
       }
     }
     aladinLoader = null;
-    throw new Error("Could not load Aladin Lite from CDN or CDS Strasbourg");
+    throw new Error(`Could not load Aladin Lite ${ALADIN_VERSION}: ${last instanceof Error ? last.message : String(last)}`);
   })();
   return aladinLoader;
 }
@@ -338,6 +354,7 @@ export function SkyContextAladin({ wcs, shape, gaiaStars, streak, selectedStar }
           fov: contextFovDeg,
           target: `${ra} ${dec}`,
           showReticle: true,
+          log: false, // no usage ping to CDS (it failed with an uncaught error, and visitors aren't tracked)
           showZoomControl: true,
           showFullscreenControl: false,
           showLayersControl: false,
