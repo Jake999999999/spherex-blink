@@ -137,7 +137,7 @@ export function blowOutSaturated(
   const out = planes.map((p) => new Float32Array(p)) as [Float32Array, Float32Array, Float32Array];
   let count = 0;
   let changed = true;
-  for (let pass = 0; pass < 4 && changed; pass++) {
+  for (let pass = 0; pass < 10 && changed; pass++) {
     changed = false;
     const snap = out.map((p) => new Float32Array(p));
     for (let y = 0; y < n; y++) {

@@ -17,7 +17,7 @@ import { flagPlane as flagPlaneOf, framePlane, loadBundle, loadIndex, loadRemote
 import { TargetBar } from "./components/TargetBar";
 import { Timeline } from "./components/Timeline";
 import { WavelengthPicker } from "./components/WavelengthPicker";
-import { blinkSteps, epochsWithBand, layerOf, matchedLayer, stepPlane, type Step } from "./lib/sequence";
+import { blinkSteps, epochsWithBand, fillSaturated, fillSinglePinholes, layerOf, matchedLayer, stepPlane, type Step } from "./lib/sequence";
 import { diffLimit, levelsFor, subtract } from "./lib/stretch";
 import { DEFAULT_STATE, parseLive, parseState, serializeState, type ViewState } from "./lib/urlState";
 import { LiveSearch, type LiveResult, type SourceMode } from "./components/LiveSearch";
@@ -264,12 +264,24 @@ export default function App() {
   const diffOk = bundle && bandEpochs.includes(state.t1) && bandEpochs.includes(state.t2) && state.t1 !== state.t2;
   const diffState = useMemo(() => {
     if (!bundle || !diffOk) return null;
-    const plain = subtract(framePlane(bundle, state.t2, state.band), framePlane(bundle, state.t1, state.band));
+    const raw1 = framePlane(bundle, state.t1, state.band);
+    const raw2 = framePlane(bundle, state.t2, state.band);
+    const f1 = fillSaturated(raw1, bundle.width, bundle.height);
+    const f2 = fillSaturated(raw2, bundle.width, bundle.height);
+    const plain = fillSinglePinholes(subtract(f2, f1), bundle.width, bundle.height);
     // S2: wavelength-matched frames when the bundle has them and channel overlap covers most of the field
     const m2 = matchedPlane(bundle, state.t2, state.band);
     const m1 = matchedPlane(bundle, state.t1, state.band);
     if (m2 && m1) {
-      const matched = subtract(m2, m1);
+      const seed1 = new Uint8Array(raw1.length);
+      const seed2 = new Uint8Array(raw2.length);
+      for (let k = 0; k < raw1.length; k++) {
+        if (!Number.isFinite(raw1[k]) && Number.isFinite(f1[k])) seed1[k] = 1;
+        if (!Number.isFinite(raw2[k]) && Number.isFinite(f2[k])) seed2[k] = 1;
+      }
+      const fm1 = fillSaturated(m1, bundle.width, bundle.height, 8, true, seed1);
+      const fm2 = fillSaturated(m2, bundle.width, bundle.height, 8, true, seed2);
+      const matched = fillSinglePinholes(subtract(fm2, fm1), bundle.width, bundle.height);
       let plainN = 0;
       let matchedN = 0;
       for (let i = 0; i < plain.length; i++) {

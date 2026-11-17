@@ -77,6 +77,34 @@ export function fillSaturated(plane: Float32Array, w: number, h: number, passes 
   return cur;
 }
 
+/**
+ * Display-only: fill isolated 1-pixel NaNs (at least 5 of 8 neighbours finite) with the
+ * neighbours' mean so single masked pixels don't appear as sharp black squares in Smooth mode.
+ */
+export function fillSinglePinholes(plane: Float32Array, w: number, h: number): Float32Array {
+  const out = new Float32Array(plane);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (Number.isFinite(plane[i])) continue;
+      let s = 0;
+      let c = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx;
+          const yy = y + dy;
+          if ((dx || dy) && xx >= 0 && yy >= 0 && xx < w && yy < h && Number.isFinite(plane[yy * w + xx])) {
+            s += plane[yy * w + xx];
+            c++;
+          }
+        }
+      }
+      if (c >= 5) out[i] = s / c;
+    }
+  }
+  return out;
+}
+
 export function allPlanes(b: Bundle): Float32Array[] {
   const planes: Float32Array[] = [];
   const filledFrames: Float32Array[] = [];
