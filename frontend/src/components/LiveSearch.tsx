@@ -16,6 +16,8 @@ export interface LiveResult {
   browser?: boolean;
   /** opened from files someone shared */
   shared?: boolean;
+  /** pre-baked backup bundle base URL */
+  base?: string;
 }
 
 export type SourceMode = "auto" | "browser" | "server";

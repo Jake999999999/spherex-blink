@@ -389,9 +389,15 @@ export default function App() {
         {
           id: r.id,
           name: r.name || `RA ${r.ra.toFixed(3)}°, Dec ${r.dec.toFixed(3)}°`,
-          tagline: r.shared ? "Shared files · not checked against NASA's archive" : r.browser ? `Your field · ${r.fov}′ · built in this browser` : `Your field · ${r.fov}′ · live from NASA`,
+          tagline: r.shared
+            ? "Shared files · not checked against NASA's archive"
+            : r.base
+              ? `Your field · ${r.fov}′ · pre-baked mirror`
+              : r.browser
+                ? `Your field · ${r.fov}′ · built in this browser`
+                : `Your field · ${r.fov}′ · live from NASA`,
           status: "ready",
-          base: r.browser ? `${MEM_PREFIX}${r.id}` : liveBase(r.id),
+          base: r.base ?? (r.browser ? `${MEM_PREFIX}${r.id}` : liveBase(r.id)),
           live: { ra: r.ra, dec: r.dec, fov: r.fov },
         },
       ]);

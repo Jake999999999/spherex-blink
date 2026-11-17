@@ -7,6 +7,7 @@ import { irsaSearchUrl, MAX_LIST_BYTES, parseExposureList, sampleByVisit, type E
 import { resolveNameInBrowser, startBrowserBuild, type BuildHandle } from "../lib/browser/client";
 import type { CubeDesc } from "../lib/colour";
 import type { LiveResult } from "./LiveSearch";
+import { resolveRemoteDataRoot } from "../lib/bundle";
 import { claimAutostart } from "../lib/live";
 import { TargetListStepper } from "./TargetListStepper";
 
@@ -27,6 +28,15 @@ interface Field {
 const CONFIRM_MB = 50;
 const MAX_MB = 600;
 const PHASE: Record<Progress["phase"], string> = { map: "Reading the 102-colour map", headers: "Reading file headers", exposures: "Processing exposures", packing: "Stacking visits" };
+
+const BACKUP_PRESETS: Record<string, { id: string; name: string; ra: number; dec: number; fov: number }> = {
+  "teegarden's star": { id: "teegarden", name: "Teegarden's Star", ra: 43.2537, dec: 16.8813, fov: 6 },
+  teegarden: { id: "teegarden", name: "Teegarden's Star", ra: 43.2537, dec: 16.8813, fov: 6 },
+  "ngc 1333": { id: "ngc-1333", name: "NGC 1333", ra: 52.295, dec: 31.36, fov: 6 },
+  "orion nebula": { id: "orion-nebula", name: "Orion Nebula", ra: 83.8221, dec: -5.3911, fov: 6 },
+  "m42": { id: "orion-nebula", name: "Orion Nebula", ra: 83.8221, dec: -5.3911, fov: 6 },
+  vega: { id: "vega", name: "Vega", ra: 279.2347, dec: 38.7837, fov: 6 },
+};
 
 const fieldId = (ra: number, dec: number, fov: number) => `b-${Math.round(ra * 1e4).toString(36)}-${Math.round((dec + 90) * 1e4).toString(36)}-${fov}`;
 
@@ -112,6 +122,20 @@ export function BrowserFetch({ onReady, autostart }: Props) {
     }
     setBusy(true);
     setErr(null);
+    const preset = BACKUP_PRESETS[s.toLowerCase()];
+    if (preset) {
+      const base = `${resolveRemoteDataRoot()}/presets/${preset.id}`;
+      try {
+        const probe = await fetch(`${base}/meta.json`, { method: "HEAD" });
+        if (probe.ok) {
+          setBusy(false);
+          onReady({ ...preset, base });
+          return;
+        }
+      } catch {
+        // fall through to live name lookup + S3 build
+      }
+    }
     setMsg(`Looking up “${s}”…`);
     try {
       const r = await resolveNameInBrowser(s);
