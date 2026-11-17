@@ -29,14 +29,34 @@ const CONFIRM_MB = 50;
 const MAX_MB = 600;
 const PHASE: Record<Progress["phase"], string> = { map: "Reading the 102-colour map", headers: "Reading file headers", exposures: "Processing exposures", packing: "Stacking visits" };
 
-const BACKUP_PRESETS: Record<string, { id: string; name: string; ra: number; dec: number; fov: number }> = {
-  "teegarden's star": { id: "teegarden", name: "Teegarden's Star", ra: 43.2537, dec: 16.8813, fov: 6 },
-  teegarden: { id: "teegarden", name: "Teegarden's Star", ra: 43.2537, dec: 16.8813, fov: 6 },
-  "ngc 1333": { id: "ngc-1333", name: "NGC 1333", ra: 52.295, dec: 31.36, fov: 6 },
-  "orion nebula": { id: "orion-nebula", name: "Orion Nebula", ra: 83.8221, dec: -5.3911, fov: 6 },
-  "m42": { id: "orion-nebula", name: "Orion Nebula", ra: 83.8221, dec: -5.3911, fov: 6 },
-  vega: { id: "vega", name: "Vega", ra: 279.2347, dec: 38.7837, fov: 6 },
-};
+const BACKUP_PRESETS: { id: string; name: string; ra: number; dec: number; fov: number; aliases: string[] }[] = [
+  { id: "teegarden", name: "Teegarden's Star", ra: 43.2537, dec: 16.8813, fov: 6, aliases: ["teegarden's star", "teegarden"] },
+  { id: "ngc-1333", name: "NGC 1333 (Protostars & ices)", ra: 52.295, dec: 31.36, fov: 6, aliases: ["ngc 1333", "ngc 1333 (protostars & ices)"] },
+  { id: "orion-nebula", name: "Orion Nebula", ra: 83.8221, dec: -5.3911, fov: 6, aliases: ["orion nebula", "m42"] },
+  { id: "vega", name: "Vega", ra: 279.2347, dec: 38.7837, fov: 6, aliases: ["vega"] },
+  { id: "orion-bar", name: "Orion Bar (PAH front)", ra: 83.858, dec: -5.417, fov: 6, aliases: ["orion bar", "orion bar (pah front)"] },
+  { id: "m82", name: "M82 (Starburst galaxy)", ra: 148.9685, dec: 69.6797, fov: 6, aliases: ["m82", "m82 (starburst galaxy)"] },
+  { id: "ngc-1068", name: "NGC 1068 (Active galaxy)", ra: 40.6696, dec: -0.0133, fov: 6, aliases: ["ngc 1068", "ngc 1068 (active galaxy)"] },
+  { id: "m57", name: "Ring Nebula (M57)", ra: 283.3962, dec: 33.0292, fov: 6, aliases: ["m57", "ring nebula", "ring nebula (m57)"] },
+  { id: "m1", name: "Crab Nebula (M1)", ra: 83.6331, dec: 22.0145, fov: 6, aliases: ["m1", "crab nebula", "crab nebula (m1)"] },
+  { id: "ngc-7027", name: "NGC 7027 (Planetary nebula)", ra: 316.7575, dec: 42.2358, fov: 6, aliases: ["ngc 7027", "ngc 7027 (planetary nebula)"] },
+  { id: "eta-carinae", name: "Eta Carinae", ra: 161.265, dec: -59.6844, fov: 6, aliases: ["eta carinae"] },
+  { id: "luhman-16", name: "Luhman 16 (Brown dwarfs)", ra: 162.3149, dec: -53.3184, fov: 6, aliases: ["luhman 16", "luhman 16 (brown dwarfs)"] },
+  { id: "elias-29", name: "Elias 29 (Water ice)", ra: 246.7892, dec: -24.6219, fov: 6, aliases: ["elias 29", "elias 29 (water ice)"] },
+  { id: "hl-tauri", name: "HL Tauri (Protoplanetary disc)", ra: 67.9104, dec: 18.2327, fov: 6, aliases: ["hl tauri", "hl tauri (protoplanetary disc)"] },
+  { id: "cas-a", name: "Cassiopeia A (Supernova remnant)", ra: 350.85, dec: 58.815, fov: 6, aliases: ["cas a", "cassiopeia a", "cassiopeia a (supernova remnant)"] },
+  { id: "nep-deep", name: "NEP Deep Field", ra: 270.0, dec: 66.5607, fov: 6, aliases: ["nep deep field", "nep deep"] },
+];
+
+function matchBackupPreset(query: string, coords?: { ra: number; dec: number } | null) {
+  const q = query.trim().toLowerCase();
+  const byName = BACKUP_PRESETS.find((p) => p.aliases.includes(q));
+  if (byName) return byName;
+  if (!coords) return null;
+  return (
+    BACKUP_PRESETS.find((p) => Math.abs(p.ra - coords.ra) < 0.02 && Math.abs(p.dec - coords.dec) < 0.02) ?? null
+  );
+}
 
 const fieldId = (ra: number, dec: number, fov: number) => `b-${Math.round(ra * 1e4).toString(36)}-${Math.round((dec + 90) * 1e4).toString(36)}-${fov}`;
 
@@ -112,30 +132,37 @@ export function BrowserFetch({ onReady, autostart }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autostart]);
 
+  const tryBackupPreset = async (preset: (typeof BACKUP_PRESETS)[number] | null) => {
+    if (!preset) return false;
+    const base = `${resolveRemoteDataRoot()}/presets/${preset.id}`;
+    try {
+      const probe = await fetch(`${base}/meta.json`, { method: "HEAD" });
+      if (probe.ok) {
+        setBusy(false);
+        onReady({ id: preset.id, name: preset.name, ra: preset.ra, dec: preset.dec, fov: preset.fov, base });
+        return true;
+      }
+    } catch {
+      // fall through to live S3 build
+    }
+    return false;
+  };
+
   const submit = async () => {
     const s = text.trim();
     if (!s) return;
     if (looksLikeCoords(s)) {
       const p = parseCoords(s);
       if (!p) return setErr("Couldn't read those coordinates. Try “08h55m10.8s -07d14m42.5s” or “133.795 -7.245”.");
+      setBusy(true);
+      setErr(null);
+      if (await tryBackupPreset(matchBackupPreset(s, p))) return;
+      setBusy(false);
       return fetchMap(p.ra, p.dec, fov, "");
     }
     setBusy(true);
     setErr(null);
-    const preset = BACKUP_PRESETS[s.toLowerCase()];
-    if (preset) {
-      const base = `${resolveRemoteDataRoot()}/presets/${preset.id}`;
-      try {
-        const probe = await fetch(`${base}/meta.json`, { method: "HEAD" });
-        if (probe.ok) {
-          setBusy(false);
-          onReady({ ...preset, base });
-          return;
-        }
-      } catch {
-        // fall through to live name lookup + S3 build
-      }
-    }
+    if (await tryBackupPreset(matchBackupPreset(s))) return;
     setMsg(`Looking up “${s}”…`);
     try {
       const r = await resolveNameInBrowser(s);
