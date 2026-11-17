@@ -656,6 +656,7 @@ export default function App() {
   });
   const [linkCopied, setLinkCopied] = useState(false);
   const [coordsCopied, setCoordsCopied] = useState(false);
+  const [jumpCoords, setJumpCoords] = useState<{ ra: number; dec: number; seq: number } | null>(null);
   const sampTimer = useRef<number | null>(null);
   const flashSamp = useCallback((msg: string) => {
     setSampNote(msg);
@@ -1037,6 +1038,7 @@ export default function App() {
         onSwitchMode={updateSourceMode}
         onCheckServer={checkServer}
         onUpstream502={setIrsaUpstream502}
+        jumpCoords={jumpCoords}
       />
       <div data-tour="targets">
         <TargetBar targets={[...index, ...liveEntries]} current={m.id} onPick={(id) => set({ target: id })} />
@@ -1372,6 +1374,7 @@ export default function App() {
                 shape={[bundle.height, bundle.width]}
                 gaiaStars={bundle.gaia.stars}
                 selectedStar={selected ? { ra: selected.ra, dec: selected.dec } : mapPoint ? { ra: mapPoint.ra, dec: mapPoint.dec } : null}
+                onJumpToCoords={(ra, dec) => setJumpCoords((j) => ({ ra, dec, seq: (j?.seq ?? 0) + 1 }))}
                 streak={
                   motion && motion.pts.length >= 2
                     ? [

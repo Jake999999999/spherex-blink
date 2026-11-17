@@ -31,13 +31,14 @@ interface Props {
   onSwitchMode?: (m: SourceMode) => void;
   onCheckServer?: () => void;
   onUpstream502?: (active: boolean) => void;
+  jumpCoords?: { ra: number; dec: number; seq: number } | null;
 }
 
 /**
  * "Any spot in the sky": a name or coordinates plus a field size, fetched live from NASA's archives by the
  * local server, processed with the same pipeline as the built-in targets.
  */
-export function LiveSearch({ onReady, autostart, sourceMode = "auto", serverOnline, onSwitchMode, onCheckServer, onUpstream502 }: Props) {
+export function LiveSearch({ onReady, autostart, sourceMode = "auto", serverOnline, onSwitchMode, onCheckServer, onUpstream502, jumpCoords }: Props) {
   const [text, setText] = useState("");
   const [fov, setFov] = useState(5);
   const [quick, setQuick] = useState(true);
@@ -119,9 +120,18 @@ export function LiveSearch({ onReady, autostart, sourceMode = "auto", serverOnli
     }
   };
 
+  const useBrowser = FORCE_BROWSER || sourceMode === "browser" || (sourceMode === "auto" && available === false);
+
+  useEffect(() => {
+    if (!jumpCoords || useBrowser || !available) return;
+    setText(`${jumpCoords.ra.toFixed(5)} ${jumpCoords.dec.toFixed(5)}`);
+    void go(jumpCoords.ra, jumpCoords.dec, fov, "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpCoords?.seq]);
+
   // browser-only mode (explicitly chosen, ?browser, or auto fallback when local server is offline)
-  if (FORCE_BROWSER || sourceMode === "browser" || (sourceMode === "auto" && available === false)) {
-    return <BrowserFetch onReady={onReady} autostart={autostart} />;
+  if (useBrowser) {
+    return <BrowserFetch onReady={onReady} autostart={autostart} jumpCoords={jumpCoords} />;
   }
   if (sourceMode === "server" && available === false) {
     return (

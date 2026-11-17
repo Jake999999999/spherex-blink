@@ -17,6 +17,8 @@ interface AladinInstance {
   setImageSurvey: (survey: string) => void;
   gotoRaDec: (ra: number, dec: number) => void;
   setFov: (fovDeg: number) => void;
+  pix2world: (x: number, y: number) => [number, number] | undefined;
+  getRaDec: () => [number, number];
   addOverlay: (overlay: AladinOverlay) => void;
   addCatalog: (catalog: AladinCatalog) => void;
   removeLayers?: () => void;
@@ -167,6 +169,7 @@ function FinderChartFallback({
   selectedStar,
   stars,
   showGaia,
+  onJumpToCoords,
 }: {
   ra: number;
   dec: number;
@@ -176,6 +179,7 @@ function FinderChartFallback({
   selectedStar?: { ra: number; dec: number } | null;
   stars: FinderStar[];
   showGaia: boolean;
+  onJumpToCoords?: (ra: number, dec: number) => void;
 }) {
   const [picked, setPicked] = useState<FinderStar | null>(null);
   const cosDec = Math.max(0.05, Math.cos((dec * Math.PI) / 180));
@@ -198,7 +202,24 @@ function FinderChartFallback({
 
   return (
     <div className="relative h-56 w-full overflow-hidden rounded-lg border border-white/10 bg-[#050914] select-none">
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-full w-full" onClick={() => setPicked(null)}>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="h-full w-full"
+        onClick={(e) => {
+          if (e.shiftKey && onJumpToCoords) {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const sx = ((e.clientX - rect.left) / rect.width) * W;
+            const sy = ((e.clientY - rect.top) / rect.height) * H;
+            const dra = -(sx - W / 2) / (cosDec * pxPerDeg);
+            const ddec = -(sy - H / 2) / pxPerDeg;
+            const nextRa = (((ra + dra) % 360) + 360) % 360;
+            const nextDec = Math.max(-90, Math.min(90, dec + ddec));
+            onJumpToCoords(nextRa, nextDec);
+            return;
+          }
+          setPicked(null);
+        }}
+      >
         {/* subtle coordinate grid */}
         {[-0.5, 0, 0.5].map((f) => (
           <g key={f} stroke="rgba(148,163,184,0.12)" strokeWidth="1">
@@ -296,9 +317,10 @@ interface Props {
   gaiaStars: GaiaStar[];
   streak?: [[number, number], [number, number]] | null;
   selectedStar?: { ra: number; dec: number } | null;
+  onJumpToCoords?: (ra: number, dec: number) => void;
 }
 
-export function SkyContextAladin({ wcs, shape, gaiaStars, streak, selectedStar }: Props) {
+export function SkyContextAladin({ wcs, shape, gaiaStars, streak, selectedStar, onJumpToCoords }: Props) {
   const [open, setOpen] = useState(false);
   const [survey, setSurvey] = useState<(typeof SURVEYS)[number]["id"]>(SURVEYS[0].id);
   const [showGaiaCatalog, setShowGaiaCatalog] = useState(true);
@@ -512,9 +534,23 @@ export function SkyContextAladin({ wcs, shape, gaiaStars, streak, selectedStar }
               selectedStar={selectedStar}
               stars={fallbackStars}
               showGaia={showGaiaCatalog}
+              onJumpToCoords={onJumpToCoords}
             />
           ) : (
-            <div className="relative h-56 w-full overflow-hidden rounded-lg border border-white/10 bg-slate-950">
+            <div
+              className="relative h-56 w-full overflow-hidden rounded-lg border border-white/10 bg-slate-950"
+              onClickCapture={(e) => {
+                if (!e.shiftKey || !onJumpToCoords || !aladinRef.current || !hostRef.current) return;
+                e.stopPropagation();
+                const rect = hostRef.current.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                const world = aladinRef.current.pix2world?.(x, y) ?? aladinRef.current.getRaDec?.();
+                if (world && Number.isFinite(world[0]) && Number.isFinite(world[1])) {
+                  onJumpToCoords(((world[0] % 360) + 360) % 360, Math.max(-90, Math.min(90, world[1])));
+                }
+              }}
+            >
               <div ref={hostRef} className="h-full w-full" />
               {loading && (
                 <div className="absolute inset-0 flex items-center justify-center bg-slate-950/80 text-xs text-slate-400">
@@ -586,6 +622,7 @@ export function SkyContextAladin({ wcs, shape, gaiaStars, streak, selectedStar }
 
           <p className="text-[11px] leading-snug text-slate-400">
             Wider sky around this target. Orange box = cutout field{streak ? "; red line = measured motion" : ""}.
+            {onJumpToCoords && " Shift+click map to move the main viewer there."}
             {fallbackMode && (
               <>
                 {" "}

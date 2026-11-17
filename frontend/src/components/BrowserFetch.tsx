@@ -14,6 +14,7 @@ import { TargetListStepper } from "./TargetListStepper";
 interface Props {
   onReady: (r: LiveResult) => void;
   autostart?: { ra: number; dec: number; fov: number; name?: string } | null;
+  jumpCoords?: { ra: number; dec: number; seq: number } | null;
 }
 
 interface Field {
@@ -66,7 +67,7 @@ const fieldId = (ra: number, dec: number, fov: number) => `b-${Math.round(ra * 1
  * time series, from IRSA's exposure list saved by the person (IRSA's search can't be called from a web
  * page) or from SPHEREx FITS files they downloaded.
  */
-export function BrowserFetch({ onReady, autostart }: Props) {
+export function BrowserFetch({ onReady, autostart, jumpCoords }: Props) {
   const [text, setText] = useState("");
   const [fov, setFov] = useState(4);
   const [field, setField] = useState<Field | null>(null);
@@ -131,6 +132,17 @@ export function BrowserFetch({ onReady, autostart }: Props) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autostart]);
+
+  useEffect(() => {
+    if (!jumpCoords) return;
+    setText(`${jumpCoords.ra.toFixed(5)} ${jumpCoords.dec.toFixed(5)}`);
+    void (async () => {
+      const preset = matchBackupPreset("", jumpCoords);
+      if (preset && (await tryBackupPreset(preset))) return;
+      fetchMap(jumpCoords.ra, jumpCoords.dec, fov, "");
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpCoords?.seq]);
 
   const tryBackupPreset = async (preset: (typeof BACKUP_PRESETS)[number] | null) => {
     if (!preset) return false;
